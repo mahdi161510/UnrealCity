@@ -61,7 +61,16 @@ step('ساخت رندرر و اتصال کانوس', () => {
   R = new MapRenderer();
   R.attach(document.getElementById('map'), document.getElementById('minimap'));
 });
-step('نمایش منو', () => { UIx.showMenu(); document.getElementById('btn-new').click(); });
+let startedWith = null;
+const menuHooksStub = { startGame(i) { startedWith = i; }, continueGame() { } };
+step('نمایش منو', () => { UIx.showMenu(menuHooksStub); document.getElementById('btn-new').click(); });
+step('کلیک روی کارت ملت → startGame صدا زده شود (رگرسیون hooks=null)', () => {
+  document.getElementById('btn-new').click();
+  const card = document.querySelector('#nation-grid .nation-card');
+  if (!card) throw new Error('کارت ملتی ساخته نشد');
+  card.click();
+  if (startedWith !== 0) throw new Error('startGame فراخوانی نشد');
+});
 step('رندر یک فریم روی منو (بدون state)', () => { /* skip */ });
 
 step('ساخت بازی جدید + initUI', () => {

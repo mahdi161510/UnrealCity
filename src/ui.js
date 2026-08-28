@@ -40,7 +40,9 @@ export function initUI(state, renderer, h) {
 }
 
 // ================== منوی آغاز ==================
-export function showMenu() {
+let menuHooks = null;
+export function showMenu(cb) {
+  if (cb) menuHooks = cb;
   const m = document.getElementById('menusc');
   m.style.display = 'flex';
   document.getElementById('game').style.display = 'none';
@@ -61,7 +63,7 @@ export function showMenu() {
         <div class="nc-desc">${esc(d.desc)}</div>
         <div class="nc-pers">${({ balanced: '⚖️ متعادل', industrial: '🏭 صنعتی', aggressive: '⚔️ جنگ‌جو', trader: '💰 بازرگان', peaceful: '🕊️ صلح‌طلب' })[d.pers]}</div>
       </div>`);
-      card.onclick = () => { Audio2.click(); hooks.startGame(i); };
+      card.onclick = () => { Audio2.click(); menuHooks && menuHooks.startGame(i); };
       grid.appendChild(card);
     });
     // پرچم‌ها با کانوس
@@ -79,7 +81,7 @@ export function showMenu() {
     back.onclick = () => { Audio2.click(); showMenu(); document.getElementById('menu-buttons').style.display = ''; };
     grid.appendChild(back);
   };
-  document.getElementById('btn-continue').onclick = () => { Audio2.click(); hooks.continueGame(); };
+  document.getElementById('btn-continue').onclick = () => { Audio2.click(); menuHooks && menuHooks.continueGame(); };
   document.getElementById('btn-how').onclick = () => { Audio2.click(); showHelp(); };
 }
 export function hideMenu() {

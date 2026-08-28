@@ -15,7 +15,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const mini = document.getElementById('minimap');
   R.attach(cv, mini);
   bindInput(cv, mini);
-  showMenu();
+  showMenu(hooks);
   // تولید نقشه پیش‌نمایش برای پس‌منو
   requestAnimationFrame(loop);
 });
