@@ -139,6 +139,25 @@ step('پنل نظام + ساخت ارتش و فرمان', () => {
   UIx.mapClick(640, 360);
 });
 step('پنل رتبه‌بندی + نمودار GDP', () => { UIx.openPanel('ranking'); });
+step('پنل کشور + نمودارها', () => { UIx.openPanel('country'); });
+step('پنل مأموریت‌ها', () => { UIx.openPanel('missions'); });
+step('مکانیز انتخابات (رویداد دوره‌ای)', () => {
+  S.nations[0].laws.gov = 'constit';
+  S.nations[0].electionCd = 1;
+  SIM.tick(S);
+  if (!S.pendingEvent || S.pendingEvent.id !== 'election') throw new Error('انتخابات فعال نشد');
+  UIx.onTick(); // نمایش مودال رویداد (معادل حلقه اصلی بازی)
+  const opt = document.querySelector('#event-modal .ev-opt');
+  if (!opt) throw new Error('مودال انتخابات نمایش داده نشد');
+  opt.click();
+});
+step('تکمیل مأموریت به‌صورت اجباری', () => {
+  const pn = S.nations[0];
+  pn.missionsDone = [];
+  for (const p of S.map.provs.filter(p => p.owner === 0)) { p.bld.textile = 3; }
+  SIM.tick(S);
+  if (!(pn.missionsDone || []).includes('smoke')) throw new Error('مأموریت smoke تکمیل نشد');
+});
 step('پنل تاریخچه', () => { UIx.openPanel('log'); });
 step('کلیک نقشه روی استان', () => { UIx.UI.selArmy = null; UIx.mapClick(640, 360); });
 step('هاور نقشه', () => { UIx.mapHover(500, 300); });

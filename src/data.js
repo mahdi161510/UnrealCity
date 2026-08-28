@@ -11,6 +11,7 @@ export const GOODS = {
   furniture: { name: 'مبلمان',    icon: '🪑', base: 55 },
   luxury:    { name: 'اقلام لوکس', icon: '💎', base: 95 },
   arms:      { name: 'سلاح',      icon: '🗡️', base: 70 },
+  steel:     { name: 'فولاد',     icon: '🔩', base: 65 },
 };
 
 // نیازهای هفتگی هر ۱۰هزار نفر بر اساس طبقه (برای تقاضای بازار و سطح زندگی)
@@ -48,9 +49,10 @@ export const BUILDINGS = {
   glasswork: { name: 'بلورسازی',     icon: '💎', cost: 1400, weeks: 60, jobs: { worker: 2600, clerk: 500, capitalist: 60 }, prod: { luxury: 3.2 }, cons: { coal: 1.2, wood: 0.4 }, cap: () => 5, urban: 1, unlock: 'steam' },
   arms_ind:  { name: 'سلاح‌سازی',    icon: '🔫', cost: 1300, weeks: 56, jobs: { worker: 3000, clerk: 250 }, prod: { arms: 4 }, cons: { iron: 1.2, coal: 0.8, tools: 0.3 }, cap: () => 6, urban: 1 },
   port:      { name: 'بندر',         icon: '⚓', cost: 800,  weeks: 40, jobs: { worker: 2400, clerk: 500 }, prod: {}, cons: {}, cap: p => p.coast ? 5 : 0, income: 260, trade: 1 },
+  steel_mill:{ name: 'فولادسازی',    icon: '🏗️', cost: 1500, weeks: 60, jobs: { worker: 3200, clerk: 250 }, prod: { steel: 4 }, cons: { iron: 2, coal: 1 }, cap: () => 6, urban: 1, unlock: 'steel' },
   barracks:  { name: 'پادگان',       icon: '🏰', cost: 600,  weeks: 36, jobs: { soldier: 1000, clerk: 80 }, prod: {}, cons: { arms: 0.25, grain: 0.8 }, cap: () => 8, battalions: 1 },
   university:{ name: 'دانشگاه',      icon: '🎓', cost: 1200, weeks: 52, jobs: { clerk: 1400 }, prod: {}, cons: { furniture: 0.15 }, cap: () => 5, urban: 1, innovation: 4 },
-  railway:   { name: 'راه‌آهن',       icon: '🚂', cost: 1600, weeks: 64, jobs: { worker: 2200, clerk: 350 }, prod: {}, cons: { coal: 0.7, iron: 0.4 }, cap: () => 5, urban: 1, unlock: 'railway', infra: 1 },
+  railway:   { name: 'راه‌آهن',       icon: '🚂', cost: 1600, weeks: 64, jobs: { worker: 2200, clerk: 350 }, prod: {}, cons: { steel: 0.9, coal: 0.5 }, cap: () => 5, urban: 1, unlock: 'railway', infra: 1 },
 };
 
 // ---------------- فناوری‌ها ----------------
@@ -60,7 +62,7 @@ export const TECHS = {
   mechani:  { br: 'ind', name: 'مکانیزاسیون',       icon: '⚙️', cost: 90,  desc: '«چرخ‌ها به نفع ما می‌چرخند.» +۱۰٪ تولید کارخانه‌ها', mods: { urbanOut: 0.10 } },
   steam:    { br: 'ind', name: 'موتور بخار',        icon: '🚂', cost: 190, desc: 'گشش بلورسازی؛ +۱۵٪ معادن', mods: { mineOut: 0.15 }, unlocks: ['glasswork'] },
   railway:  { br: 'ind', name: 'راه‌آهن',           icon: '🛤️', cost: 320, desc: 'گشش راه‌آهن؛ +۱۰٪ درآمد مالیات', mods: { taxMult: 0.10 }, unlocks: ['railway'] },
-  steel:    { br: 'ind', name: 'فولاد بسمر',        icon: '🔩', cost: 300, desc: '+۲۰٪ ابزار و سلاح', mods: { toolOut: 0.20 } },
+  steel:    { br: 'ind', name: 'فولاد بسمر',        icon: '🔩', cost: 300, desc: 'گشش فولادسازی؛ +۲۰٪ ابزار و سلاح', mods: { toolOut: 0.20 }, unlocks: ['steel_mill'] },
   assembly: { br: 'ind', name: 'خط تولید',          icon: '🏗️', cost: 520, desc: '+۲۰٪ تولید کارخانه‌ها', mods: { urbanOut: 0.20 }, prereq: ['mechani'] },
   electric: { br: 'ind', name: 'برق',               icon: '💡', cost: 640, desc: '+۱۵٪ همه‌ی تولید، +۲ نوآوری', mods: { allOut: 0.15, innov: 2 }, prereq: ['assembly'] },
   // نظامی
@@ -213,7 +215,93 @@ export const EVENTS = [
       { label: 'جشنی بزرگ', hint: 'خزانه −£۲هزار، ناآرامی −۸، اعتبار +۲', fx: { money: -2000, unrestAll: -8, prestige: 2 } },
       { label: 'جشنی ساده', hint: 'تایید گروه‌ها +۲', fx: { approveAll: 2 } },
     ] },
+  { id: 'railmania', icon: '🚂', w: 4, cond: s => s.nations[s.playerId].tech.includes('railway'), title: 'تب راه‌آهن', text: 'سهامداران برای سهم راه‌آهن هجوم آورده‌اند. هر کوچه سخن از لکوموتیو است و سرمایه‌داران آماده‌ی سرمایه‌گذاری بزرگ‌اند.',
+    opts: [
+      { label: 'انتشار سهام دولتی', hint: 'خزانه +£۳هزار، سرمایه‌داران خرسند', fx: { money: 3000, approval: { industrialists: 6 } } },
+      { label: 'احتیاط کنید', hint: 'نوآوری +۱۰ امتیاز', fx: { research: 10 } },
+    ] },
+  { id: 'exhibition', icon: '🏛️', w: 5, cond: s => s.nations[s.playerId].gdp > 1500, title: 'نمایشگاه جهانی', text: 'دعوت به برگزاری نمایشگاه بزرگ صنعت رسیده است. همه‌ی ملت‌ها نمونه‌های برگزیده می‌فرستند؛ نمایشی درخشان نام شما را جاودانه می‌کند.',
+    opts: [
+      { label: 'نمایشگاهی باشکوه', hint: 'خزانه −£۵هزار، اعتبار +۶', fx: { money: -5000, prestige: 6 } },
+      { label: 'غرفه‌ای ساده', hint: 'خزانه −£۱هزار، اعتبار +۲', fx: { money: -1000, prestige: 2 } },
+      { label: 'شرکت نکنیم', hint: 'روشنفکران کمی دلسرد', fx: { approval: { intelligentsia: -3 } } },
+    ] },
+  { id: 'strikebreaker', icon: '💼', w: 5, cond: s => s.nations[s.playerId].gdp > 1200, title: 'شیادی در کارخانه', text: 'مدیر یکی از کارخانه‌ها به‌تقلب در دستمزدها متهم شده است. کارگران خواهان انصاف‌اند و سهامداران خواهان حفظ آبرو.',
+    opts: [
+      { label: 'عزل و محاکمه مدیر', hint: 'کارگران خرسند، سرمایه‌داران ناراضی', fx: { approval: { workers: 6, industrialists: -5 } } },
+      { label: 'پوشش بدهید', hint: 'سرمایه‌داران خرسند، ناآرامی +۴', fx: { approval: { industrialists: 5 }, unrestAll: 4 } },
+    ] },
+  { id: 'women', icon: '🎗️', w: 4, cond: s => (s.week / 52) > 40, title: 'جنبش زنان', text: 'زنان تحصیل‌کرده خواهان حق تحصیل و کار برابر شده‌اند. جنبش آرام اما ریشه‌دار است و روزنامه‌ها پر از بحث‌اند.',
+    opts: [
+      { label: 'بپذیرید', hint: 'نوآوری +۱۵، روشنفکران خرسند، روحانیون ناراضی', fx: { research: 15, approval: { intelligentsia: 5, clergy: -6 } } },
+      { label: 'به تعویق بیندازید', hint: 'روحانیون خرسند', fx: { approval: { clergy: 4, intelligentsia: -3 } } },
+    ] },
+  { id: 'bazaar', icon: '🏺', w: 6, title: 'بازار مرزی', text: 'تجار خواهان گشایش بازارچه‌ای مرزی با همسایه‌اند. نگهبانان نگران قاچاق‌اند.',
+    opts: [
+      { label: 'گشایش بازارچه', hint: 'خزانه +£۱۸۰۰، روابط +۶', fx: { money: 1800, relAll: 6 } },
+      { label: 'محاصره قاچاق', hint: 'ارتش خرسند، خزانه +£۶۰۰', fx: { money: 600, approval: { military: 3 } } },
+    ] },
+  { id: 'whale', icon: '🐋', w: 4, cond: s => s.map.provs.some(p => p.owner === s.playerId && p.coast), title: 'شکار نهنگ', text: 'شکارچیان نهنگ با کشتی‌های پر از روغن به بندر برگشته‌اند. بازار روغن و چراغ‌ها گرم است.',
+    opts: [
+      { label: 'صادرات سازمان‌یافته', hint: 'خزانه +£۲۲۰۰', fx: { money: 2200 } },
+      { label: 'تقسیم میان تنگدستان', hint: 'ناآرامی −۶، سطح زندگی +۱', fx: { unrestAll: -6, solAll: 1 } },
+    ] },
+  { id: 'petition', icon: '📜', w: 6, cond: s => s.nations[s.playerId].laws.gov === 'absolut', title: 'طومار اصلاحات', text: 'طوماری با هزاران امضا خواهان تشکیل مجلس است. مشاوران میان شکافتن یا مذاکره دو‌مانده‌اند.',
+    opts: [
+      { label: 'گوش به فرمان', hint: 'روشنفکران و صنعتگران خرسند، اشراف ناراضی', fx: { approval: { intelligentsia: 6, industrialists: 4, landowners: -6 } } },
+      { label: 'طومار را پاره کنید', hint: 'اشراف خرسند، ناآرامی +۶', fx: { approval: { landowners: 5 }, unrestAll: 6 } },
+    ] },
+  { id: 'assassin', icon: '🗡️', w: 3, cond: s => (s.nations[s.playerId].wars.length > 0), title: 'سایه‌ی ترور', text: 'عامل یک انجمن مخفی به‌زندگی شما تهدید کرده است. محافظان خواهان اقدام فوری‌اند.',
+    opts: [
+      { label: 'دستگیری‌های گسترده', hint: 'خزانه −£۸۰۰، ناآرامی +۳', fx: { money: -800, unrestAll: 3, approval: { military: 4 } } },
+      { label: 'بی‌تفاوت بمانید', hint: 'ناآرامی −۲، اما اعتبار −۱', fx: { unrestAll: -2, prestige: -1 } },
+    ] },
+  { id: 'silk', icon: '🧵', w: 5, title: 'کاروان ابریشم', text: 'راه ابریشم از سرزمین شما می‌گذرد و بازرگانان خواهان امنیت جاده‌ها هستند.',
+    opts: [
+      { label: 'گشتی جاده‌ای برقرار کنید', hint: 'خزانه +£۱۵۰۰، روابط +۴', fx: { money: 1500, relAll: 4 } },
+      { label: 'عوارض سنگین', hint: 'خزانه +£۳هزار، روابط −۶', fx: { money: 3000, relAll: -6 } },
+    ] },
 ];
 
 export const PROV_SYLL_A = ['کاش', 'سور', 'مهر', 'تیر', 'بار', 'شاه', 'رود', 'گُل', 'نار', 'دشت', 'کیش', 'سار', 'ور', 'مان', 'فر', 'راز', 'هوم', 'بال', 'ژاو', 'کوه', 'نی', 'زر', 'پار', 'لاد', 'آبا', 'چنار', 'برف', 'سیم'];
 export const PROV_SYLL_B = ['ستان', 'آباد', 'گران', 'مر', 'دین', 'نار', 'سار', 'خان', 'بور', 'شهر', 'رود', 'گرد', 'لان', 'پور', 'ده', 'کلا', 'وند', 'جرد', 'ماز', 'تان'];
+
+// ---------------- مأموریت‌ها (ژورنال) ----------------
+// prog(state, helpers) → {cur, max} ؛ reward متنی است
+export const MISSIONS = [
+  { id: 'smoke', icon: '🏭', title: 'نخستین دود', desc: 'داشتن ۵ سطح کارخانه شهری (نساجی، ابزار، مبلمان، سلاح، فولاد، بلور)', reward: { money: 1500, prestige: 2 },
+    prog: (S, h, n) => ({ cur: h.countBld(S, n, ['textile', 'tool_work', 'furniture', 'arms_ind', 'steel_mill', 'glasswork']), max: 5 }) },
+  { id: 'granary', icon: '🌾', title: 'انبار امپراتوری', desc: 'داشتن ۱۴ سطح مزرعه و دامداری', reward: { money: 1200, prestige: 2 },
+    prog: (S, h, n) => ({ cur: h.countBld(S, n, ['farm', 'ranch']), max: 14 }) },
+  { id: 'lamp', icon: '🎓', title: 'چراغ دانش', desc: 'ساختن ۴ دانشگاه', reward: { money: 800, research: 60, prestige: 2 },
+    prog: (S, h, n) => ({ cur: h.countBld(S, n, ['university']), max: 4 }) },
+  { id: 'harbor', icon: '⚓', title: 'استادِ اسکله', desc: 'داشتن ۴ بندر', reward: { money: 1500, prestige: 3 },
+    prog: (S, h, n) => ({ cur: h.countBld(S, n, ['port']), max: 4 }) },
+  { id: 'ironroad', icon: '🚂', title: 'راه‌آهن سراسری', desc: 'داشتن ۳ خط راه‌آهن', reward: { money: 2000, prestige: 4 },
+    prog: (S, h, n) => ({ cur: h.countBld(S, n, ['railway']), max: 3 }) },
+  { id: 'ironarmy', icon: '🪖', title: 'ارتش آهنین', desc: 'داشتن ۱۲ گردان آماده', reward: { prestige: 3 },
+    prog: (S, h, n) => ({ cur: Math.round(n.battalions + h.fielded(S, n.id)), max: 12 }) },
+  { id: 'welfare', icon: '😊', title: 'تمدن بزرگ', desc: 'رساندن میانگین امید به زندگی به ۱۷', reward: { prestige: 5, solAll: 1 },
+    prog: (S, h, n) => ({ cur: Math.round(h.avgSol(S, n.id)), max: 17 }) },
+  { id: 'readers', icon: '📖', title: 'طبقه‌ی خوانده', desc: 'رساندن سواد به ۴۰٪', reward: { prestige: 3, approval: { intelligentsia: 6 } },
+    prog: (S, h, n) => ({ cur: Math.round(n.literacy || 0), max: 40 }) },
+  { id: 'indtech', icon: '⚙️', title: 'مهندسِ عصر', desc: 'کشف ۴ فناوری صنعتی', reward: { money: 1500, prestige: 3 },
+    prog: (S, h, n) => ({ cur: n.tech.filter(t => TECHS[t].br === 'ind').length, max: 4 }) },
+  { id: 'pacts', icon: '🤝', title: 'هم‌پیمان بزرگ', desc: 'داشتن ۲ پیمان فعال (تجاری یا اتحاد)', reward: { prestige: 3, money: 500 },
+    prog: (S, h, n) => ({ cur: Object.keys(n.pacts).length, max: 2 }) },
+  { id: 'conqueror', icon: '🏴‍☠️', title: 'فتح‌نامه', desc: 'الحاق یک استان در جنگ', reward: { prestige: 5 },
+    prog: (S, h, n) => ({ cur: n.annexed || 0, max: 1 }) },
+  { id: 'top', icon: '👑', title: 'قدرت برتر', desc: 'رسیدن به رتبه‌ی ۱ اعتبار جهان', reward: { prestige: 8, money: 3000 },
+    prog: (S, h, n) => ({ cur: h.rankOf(S, n.id) === 1 ? 1 : 0, max: 1 }) },
+];
+
+// رویداد ساختگی انتخابات (هر ~۴ سال برای حکومت‌های مشروطه/جمهوری)
+export const ELECTION_EVENT = {
+  id: 'election', icon: '🗳️', w: 0, title: 'انتخابات عمومی',
+  text: 'موعد انتخابات رسیده است. احزاب میدان برای مجلس دست‌وپنجه نرم می‌کنند و تبلیغات شهر را پر کرده. دولت شما می‌تواند از یک سو حمایت کند.',
+  opts: [
+    { label: 'حمایت از محافظه‌کاران', hint: 'اشراف و ارتش خرسند، روشنفکران ناراضی', fx: { approval: { landowners: 6, military: 4, intelligentsia: -5 }, elect: 'con' } },
+    { label: 'حمایت از آزادی‌خواهان', hint: 'روشنفکران و صنعتگران خرسند، اشراف ناراضی', fx: { approval: { intelligentsia: 6, industrialists: 5, landowners: -5 }, elect: 'lib' } },
+    { label: 'حمایت از کارگران', hint: 'کارگران خرسند، صنعتگران ناراضی', fx: { approval: { workers: 8, industrialists: -6 }, elect: 'soc' } },
+  ],
+};

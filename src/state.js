@@ -28,6 +28,9 @@ export function newGame(seed, playerIdx) {
     improvementCd: {}, dowCd: 0, revoltCd: 0, buildCd: 0,
     battalions: 0,
     prestige: 0, gdp: 300, solScore: 10,
+    literacy: 11 + Math.floor(rng() * 8) + (i % 4 === 1 ? 6 : 0),
+    missionsDone: [], annexed: 0,
+    electionCd: 208 + Math.floor(rng() * 60),
     ai: { nextThink: Math.floor(rng() * 8) },
     boom: 0, strike: 0,
   }));
@@ -97,7 +100,7 @@ export function newGame(seed, playerIdx) {
     pendingEvent: null,
     eventCd: 20,
     stats: { weeks: 0, gdp: {}, sol: {} },
-    victory: false, defeat: false,
+    victory: false, defeat: false, gameOver: false,
   };
   for (const g in GOODS) {
     state.goods[g] = { price: GOODS[g].base * (0.9 + rng() * 0.2), s: 0, d: 0, hist: [] };
@@ -123,6 +126,7 @@ export function saveGame(state) {
       res: n.res, rel: n.rel, pacts: n.pacts, wars: n.wars, treasury: n.treasury,
       battalions: n.battalions, prestige: n.prestige, gdp: n.gdp, alive: n.alive,
       boom: n.boom, strike: n.strike, capital: n.capital, revoltCd: n.revoltCd, dowCd: n.dowCd,
+      literacy: n.literacy, missionsDone: n.missionsDone, annexed: n.annexed, electionCd: n.electionCd,
     })),
     provs: state.map.provs.map(p => ({
       owner: p.owner, controller: p.controller, pops: p.pops, bld: p.bld, queue: p.queue,
@@ -149,7 +153,14 @@ export function loadGame() {
   for (const k in dyn.goods) Object.assign(state.goods[k], dyn.goods[k]);
   state.armies = dyn.armies; state.nextArmyId = dyn.nextArmyId;
   state.wars = dyn.wars; state.nextWarId = dyn.nextWarId;
-  state.log = dyn.log; state.stats = dyn.stats; state.victory = dyn.victory;
+  state.log = dyn.log; state.stats = dyn.stats || state.stats; state.victory = dyn.victory;
+  state.stats.gdp = state.stats.gdp || {};
+  state.stats.sol = state.stats.sol || {};
+  for (const n of state.nations) {
+    if (!state.stats.gdp[n.id]) state.stats.gdp[n.id] = [];
+    if (!state.stats.sol[n.id]) state.stats.sol[n.id] = [];
+    if (!n.missionsDone) n.missionsDone = [];
+  }
   state.battles = []; state.fx = []; state.pendingEvent = null; state.eventCd = 8;
   return state;
 }

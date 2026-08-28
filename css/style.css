@@ -363,6 +363,20 @@ button { font-family: inherit; cursor: pointer; }
 .log-tx { flex: 1; line-height: 1.7; }
 .log-d { white-space: nowrap; font-size: 9.5px; }
 
+/* مأموریت‌ها و نمودارها */
+.mission { display: flex; gap: 9px; align-items: center; padding: 8px 9px; margin-bottom: 7px; background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.4); border-radius: 11px; font-size: 12px; }
+.mission.done { opacity: .6; border-color: rgba(143,188,106,.4); }
+.mi-ic { font-size: 21px; }
+.mi-mid { flex: 1; min-width: 0; }
+.mi-nm { font-weight: 800; margin-bottom: 2px; }
+.mi-side { text-align: left; font-size: 11px; white-space: nowrap; }
+.chart-box { display: flex; justify-content: center; }
+.chart-box canvas { border: 1px solid var(--line); border-radius: 10px; max-width: 100%; }
+.endtable { margin-top: 12px; text-align: right; max-height: 260px; overflow-y: auto; }
+.endrow { display: flex; gap: 9px; align-items: center; padding: 5px 9px; border-radius: 8px; background: rgba(255,240,200,.04); margin-bottom: 4px; font-size: 12.5px; }
+.endrow b { flex: 1; }
+.endrow.me { border: 1px solid var(--gold2); background: rgba(217,177,102,.12); }
+
 /* مینی‌مپ و مدهای نقشه */
 #bottom-left { position: absolute; left: 10px; bottom: 10px; z-index: 16; }
 #minimap { border: 2px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); cursor: crosshair; background: #0c1420; }

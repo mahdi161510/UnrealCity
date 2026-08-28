@@ -1,5 +1,5 @@
 // ---------- شبیه‌سازی هفتگی: اقتصاد، جمعیت، سیاست، جنگ، رویدادها، AI ----------
-import { GOODS, BUILDINGS, NEEDS, POP_CLASSES, TECHS, LAWS, GROUPS, TAX_LEVELS, TERRAIN, EVENTS, NATION_DEFS } from './data.js';
+import { GOODS, BUILDINGS, NEEDS, POP_CLASSES, TECHS, LAWS, GROUPS, TAX_LEVELS, TERRAIN, EVENTS, NATION_DEFS, MISSIONS, ELECTION_EVENT } from './data.js';
 import { clamp, lerp, mulberry32, pick } from './utils.js';
 import { addLog } from './state.js';
 import { findPath } from './mapgen.js';
@@ -99,10 +99,12 @@ export function tick(state) {
       if (p.owner !== n.id || p.controller !== n.id) continue;
       const jobs = nationJobs(S, p);
       const emp = p.employ = {};
-      // استخدام: هر طبقه تا سقف ظرفیت
+      // استخدام: هر طبقه تا سقف ظرفیت (مشاغل منشی به سواد وابسته است)
       for (const c in POP_CLASSES) {
         const pool = p.pops[c] || 0;
-        emp[c] = Math.min(pool, jobs[c] || 0);
+        let cap = jobs[c] || 0;
+        if (c === 'clerk') cap *= clamp(0.4 + (n.literacy || 12) / 100 * 0.8, 0.4, 1.1);
+        emp[c] = Math.min(pool, cap);
       }
       emp.unemp = 0;
       const devMult = Math.max(0.35, 1 - p.devast * 0.08);
@@ -130,6 +132,7 @@ export function tick(state) {
         if (happy('landowners') && (k === 'farm' || k === 'ranch')) outMult *= 1.05;
         if (n.boom > 0) outMult *= 1.08;
         if (n.strike > 0 && bd.urban) outMult *= 0.65;
+        if (p.bld.railway > 0 && bd.prod && Object.keys(bd.prod).length) outMult *= 1 + Math.min(0.05 * p.bld.railway, 0.25); // زیرساخت ریلی
         // کمبود نهاده
         let inFill = 1;
         for (const g in bd.cons) { const f = S.goods[g].fill ?? 1; if (f < inFill) inFill = f; }
@@ -378,13 +381,22 @@ export function tick(state) {
     }
   }
 
-  // ---------- ۶) پژوهش ----------
+  // ---------- ۶) پژوهش و سواد ----------
   for (const n of S.nations) {
-    if (!n.alive || !n.res.key) continue;
+    if (!n.alive) continue;
+    // سواد: به‌سمت هدف حرکت آرام
+    {
+      let unis = 0, myProvs = 0;
+      for (const p of S.map.provs) if (p.owner === n.id) { myProvs++; if (p.controller === n.id) unis += p.bld.university || 0; }
+      const tmL = techMods(S, n);
+      const targetLit = clamp(10 + (unis / Math.max(myProvs, 1)) * 7 + (n.tech.includes('literacy') ? 12 : 0) + (n.tech.includes('suffrage') ? 6 : 0) + tmL.innov * 0, 6, 92);
+      n.literacy = clamp((n.literacy || 12) + clamp(targetLit - (n.literacy || 12), -1, 1) * 0.012, 4, 95);
+    }
+    if (!n.res.key) continue;
     const tm = techMods(S, n);
     let unis = 0;
     for (const p of S.map.provs) if (p.owner === n.id && p.controller === n.id) unis += p.bld.university || 0;
-    const innov = 4 + unis * 1.5 + tm.innov + ((n.groups.intelligentsia?.appr ?? 0) >= 10 ? 1.5 : 0);
+    const innov = 4 + unis * 1.5 + tm.innov + (n.literacy || 0) / 22 + ((n.groups.intelligentsia?.appr ?? 0) >= 10 ? 1.5 : 0);
     n.res.pts += innov;
     n.innov = innov;
     const t = TECHS[n.res.key];
@@ -442,7 +454,9 @@ export function tick(state) {
     const arm = (n.battalions + armiesOf(S, n.id).reduce((a, x) => a + x.size, 0));
     n.prestige = 60 * (n.gdp / maxG) + 25 * (arm / maxBat) + n.tech.length * 2.2 + tm.prestige + avgSol(S, n.id) * 0.35;
     S.stats.gdp[n.id].push(n.gdp);
-    if (S.stats.gdp[n.id].length > 150) S.stats.gdp[n.id].shift();
+    if (!S.stats.sol[n.id]) S.stats.sol[n.id] = [];
+    S.stats.sol[n.id].push(avgSol(S, n.id));
+    if (S.stats.gdp[n.id].length > 150) { S.stats.gdp[n.id].shift(); S.stats.sol[n.id].shift(); }
   }
   S.stats.weeks++;
   if (n_boomTick(S)) { /* noop */ }
@@ -464,6 +478,26 @@ export function tick(state) {
 
   // پیشنهادهای دیپلماتیک برای بازیکن
   expireOffers(state);
+
+  // ---------- ۱۰.۵) انتخابات دوره‌ای + مأموریت‌ها ----------
+  const pnx = S.nations[S.playerId];
+  if (pnx.alive && pnx.laws.gov !== 'absolut' && !S.pendingEvent && !S.gameOver) {
+    if (pnx.electionCd === undefined) pnx.electionCd = 208;
+    pnx.electionCd--;
+    if (pnx.electionCd <= 0) {
+      pnx.electionCd = 208;
+      S.pendingEvent = ELECTION_EVENT;
+      S.pausedBeforeEvent = S.paused;
+      S.paused = true;
+      addLog(S, '🗳️', 'انتخابات عمومی آغاز شد.');
+    }
+  }
+  checkMissions(S);
+  if (!S.gameOver && S.week >= 3380) {
+    S.gameOver = true;
+    S.paused = true;
+    addLog(S, '👑', 'قرن نوزدهم به پایان رسید؛ سرشماری نهایی قدرت‌ها انجام شد.');
+  }
 
   // ---------- ۱۱) پیروزی/شکست ----------
   const pn = S.nations[S.playerId];
@@ -520,6 +554,7 @@ function simArmies(S) {
       let mw = moveWeeks(S, n, next);
       const ownerN = S.map.provs[next].owner;
       if (n >= 0 && ownerN !== n && !atWar(S, n, ownerN)) mw *= 1.8; // گذر از خاک بی‌گانه خنثی
+      if (S.map.provs[next].bld.railway > 0) mw /= 1.6; // حمل‌ونقل ریلی
       a.prog = (a.prog || 0) + 1 / mw;
       if (a.prog >= 1) {
         a.prog = 0;
@@ -693,6 +728,10 @@ function simWars(S) {
     }
     // AI صلح می‌خواهد؟
     const scoreAD = w.score; // مثبت به نفع مهاجم
+    // مهاجم اگر هدف جنگ را مدتی نگه دارد، خواسته‌اش تحمیل می‌شود
+    if (w.goal !== null && w.goal !== undefined && S.map.provs[w.goal].controller === w.a) w.goalHold = (w.goalHold || 0) + 1;
+    else w.goalHold = 0;
+    if (w.goalHold >= 26 && canEnforce(S, w)) { endWar(S, w, 'enforce'); continue; }
     if (!A.player && scoreAD <= -45) { endWar(S, w, 'white'); continue; }
     if (!D.player && scoreAD >= 55 && canEnforce(S, w)) { endWar(S, w, 'enforce'); continue; }
     if (w.weeks > 104 && Math.abs(w.score) < 15 && !A.player && !D.player && Math.random() < 0.05) { endWar(S, w, 'white'); continue; }
@@ -762,6 +801,7 @@ export function endWar(S, w, kind) {
     p.owner = w.a; p.controller = w.a; p.unrest = Math.min(100, p.unrest + 25); p.occ = 0;
     // پاک شدن صاحب قبلی در صورت نبود استان
     A.prestige += 6;
+    A.annexed = (A.annexed || 0) + 1;
     text = `${A.name} استان ${p.name} را از ${D.name} ضمیمه کرد.`;
     addLog(S, '🏴‍☠️', text);
     const rep = Math.min(Math.max(0, D.treasury) * 0.5, Math.max(0, D.gdp) * 1.2);
@@ -905,15 +945,20 @@ function commandAIArmies(S, n) {
       if (!w) continue;
       const side = warSide(S, w, n.id);
       const foe = side === 'a' ? w.d : w.a;
-      // هدف: استان هدف جنگ یا نزدیک‌ترین مرزی
-      let goal = (side === 'a' && w.goal !== undefined && S.map.provs[w.goal]?.owner === foe) ? w.goal : null;
+      // اولویت نخست: آزادسازی استان اشغال‌شده‌ی خودمان
+      const occProv = S.map.provs.find(p => p.owner === n.id && p.controller >= 0 && p.controller !== n.id && atWar(S, p.controller, n.id));
+      let goal = occProv ? occProv.id : null;
       if (goal === null) {
-        goal = S.map.provs.find(p => p.owner === foe && p.adj.some(q => S.map.provs[q].owner === n.id))?.id;
+        // هدف تهاجمی: استان هدف جنگ یا نزدیک‌ترین استان مرزی دشمن
+        goal = (side === 'a' && w.goal !== undefined && w.goal !== null && S.map.provs[w.goal]?.owner === foe) ? w.goal : null;
+        if (goal === null) {
+          goal = S.map.provs.find(p => p.owner === foe && p.adj.some(q => S.map.provs[q].owner === n.id))?.id;
+        }
       }
-      // دفاع از پایتخت در صورت تهدید
+      // دفاع از پایتخت در صورت تهدید نزدیک
       const cap2 = n.capital;
       const threatened = S.armies.some(e => e.n >= 0 && atWar(S, e.n, n.id) && (S.map.provs[e.prov].owner === n.id || S.map.provs[e.prov].adj.includes(cap2)));
-      if (threatened) goal = cap2;
+      if (threatened && !occProv) goal = cap2;
       if (goal !== null && goal !== undefined && a.prov !== goal && a.status !== 'move') orderArmy(S, a, goal);
     }
   } else {
@@ -1132,4 +1177,37 @@ export function aiWeeklyMaintenance(S) { /* رزرو */ }
 export function currentWarScore(S, w, nid) {
   const side = warSide(S, w, nid);
   return side === 'a' ? w.score : side === 'd' ? -w.score : 0;
+}
+
+// ---------- مأموریت‌ها ----------
+export const missionHelpers = {
+  countBld(S, n, keys) {
+    let c = 0;
+    for (const p of S.map.provs) if (p.owner === n.id) for (const k of keys) c += p.bld[k] || 0;
+    return c;
+  },
+  fielded(S, nid) { return armiesOf(S, nid).reduce((a, x) => a + x.size, 0); },
+  avgSol(S2, nid) { return avgSol(S2, nid); },
+  rankOf(S, nid) { return ranking(S).findIndex(r => r.id === nid) + 1; },
+};
+function checkMissions(S) {
+  const n = S.nations[S.playerId];
+  if (!n.alive) return;
+  if (!n.missionsDone) n.missionsDone = [];
+  for (const m of MISSIONS) {
+    if (n.missionsDone.includes(m.id)) continue;
+    let p;
+    try { p = m.prog(S, missionHelpers, n); } catch (e) { continue; }
+    if (p.cur >= p.max) {
+      n.missionsDone.push(m.id);
+      const R = m.reward;
+      if (R.money) n.treasury += R.money;
+      if (R.prestige) n.prestige += R.prestige;
+      if (R.research) n.res.pts += R.research;
+      if (R.solAll) { for (const pv of S.map.provs) if (pv.owner === n.id) pv.sol = clamp(pv.sol + R.solAll, 2, 30); }
+      if (R.approval) for (const g in R.approval) { if (n.groups[g]) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + R.approval[g]; }
+      addLog(S, m.icon, `مأموریت «${m.title}» تکمیل شد!`);
+      pushAlert(S, m.icon, `مأموریت «${m.title}» تکمیل شد — پاداش گرفتید`);
+    }
+  }
 }

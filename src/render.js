@@ -50,8 +50,8 @@ export class MapRenderer {
     for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
       const i = y * GW + x;
       const e = elev[i], m = moist[i];
-      let col;
-      if (cells[i] < 0) {
+      let col, isSea2 = cells[i] < 0;
+      if (isSea2) {
         const depth = clamp((seaLevel - e) / seaLevel, 0, 1);
         col = [lerp(SEA_SHAL[0], SEA_DEEP_A[0], depth), lerp(SEA_SHAL[1], SEA_DEEP_A[1], depth), lerp(SEA_SHAL[2], SEA_DEEP_A[2], depth)];
       } else {
@@ -63,11 +63,15 @@ export class MapRenderer {
         if (e < seaLevel + 0.018) col = PAL.beach;
         if (e > 0.86) col = PAL.snow;
       }
+      // سایه‌روشن شیب (نور از شمال‌غرب) → حس سه‌بعدی
+      const dx = elev[x < GW - 1 ? i + 1 : i] - elev[x > 0 ? i - 1 : i];
+      const dy = elev[y < GH - 1 ? i + GW : i] - elev[y > 0 ? i - GW : i];
+      const shade = clamp((dx * -1.6 + dy * -1.1) * 2.2, -0.42, 0.42) * (isSea2 ? 0.35 : 1);
       // دانه‌بندی کاغذی
       const g = ((i * 7919) % 13 - 6);
-      d[(i) * 4] = clamp(col[0] + g, 0, 255);
-      d[(i) * 4 + 1] = clamp(col[1] + g, 0, 255);
-      d[(i) * 4 + 2] = clamp(col[2] + g, 0, 255);
+      d[(i) * 4] = clamp((col[0] + g) * (1 + shade), 0, 255);
+      d[(i) * 4 + 1] = clamp((col[1] + g) * (1 + shade), 0, 255);
+      d[(i) * 4 + 2] = clamp((col[2] + g) * (1 + shade), 0, 255);
       d[(i) * 4 + 3] = 255;
     }
     c.putImageData(img, 0, 0);
@@ -99,6 +103,24 @@ export class MapRenderer {
           const s = CELL * 0.32;
           dc.beginPath(); dc.moveTo(x, y - s); dc.lineTo(x - s * 0.7, y + s * 0.5); dc.lineTo(x + s * 0.7, y + s * 0.5); dc.closePath(); dc.fill();
         }
+      }
+    }
+    // رودخانه‌ها
+    if (state.map.rivers) {
+      dc.lineCap = 'round'; dc.lineJoin = 'round';
+      for (const path of state.map.rivers) {
+        dc.strokeStyle = 'rgba(78,116,148,0.9)';
+        dc.lineWidth = CELL * 0.52;
+        dc.beginPath();
+        for (let k = 0; k < path.length; k++) {
+          const ci = path[k];
+          const x = (ci % GW + 0.5) * CELL, y = ((ci / GW | 0) + 0.5) * CELL;
+          k ? dc.lineTo(x, y) : dc.moveTo(x, y);
+        }
+        dc.stroke();
+        dc.strokeStyle = 'rgba(165,205,228,0.5)';
+        dc.lineWidth = CELL * 0.22;
+        dc.stroke();
       }
     }
     // وینیت کاغذی
@@ -267,10 +289,16 @@ export class MapRenderer {
     ctx.drawImage(this.borCv, 0, 0);
     ctx.globalAlpha = 1;
 
+    this.drawWaves(state, t);
     this.drawNames(state, ui);
+    this.updateShips(state, dt);
+    this.drawShips(t);
+    this.drawRailways(state, dt, t);
     this.drawCities(state, t);
     this.updateSmoke(state, dt);
     this.drawSmoke(ctx);
+    this.updateBirds(dt);
+    this.drawBirds(t);
     this.drawArmies(state, t);
     this.drawBattles(state, t);
     this.drawFx(state, dt);
@@ -278,6 +306,159 @@ export class MapRenderer {
     this.drawClouds(dt);
     ctx.restore();
     this.drawMinimap(state);
+  }
+
+  // ---------- امواج ساحلی ----------
+  drawWaves(state, t) {
+    const cs = state.map.coastSea;
+    if (!cs || !cs.length) return;
+    const c = this.ctx;
+    c.save();
+    c.strokeStyle = 'rgba(228,240,248,1)';
+    c.lineWidth = 1;
+    for (let k = 0; k < cs.length; k += 5) {
+      const i = cs[k];
+      const x = (i % GW) * CELL + CELL / 2, y = ((i / GW | 0)) * CELL + CELL / 2;
+      const ph = t * 1.7 + (i % 97) * 0.35;
+      c.globalAlpha = 0.04 + 0.06 * (0.5 + 0.5 * Math.sin(ph));
+      c.beginPath();
+      c.arc(x + Math.sin(ph * 0.5) * 1.6, y, CELL * 0.55, Math.PI * 0.15, Math.PI * 0.85);
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  // ---------- کشتی‌های تجاری ----------
+  updateShips(state, dt) {
+    this._shipT = (this._shipT || 0) + dt;
+    if (!this.ships) this.ships = [];
+    if (this._shipT > 2.8 && this.ships.length < 10) {
+      const ports = state.map.provs.filter(p => (p.bld.port || 0) > 0 && state.nations[p.owner].alive);
+      if (ports.length >= 2) {
+        const a = ports[(Math.random() * ports.length) | 0];
+        let b = a, guard = 0;
+        while (b === a && guard++ < 7) b = ports[(Math.random() * ports.length) | 0];
+        if (b !== a) {
+          const dirA = seaDir(state, a), dirB = seaDir(state, b);
+          const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2;
+          const off = 50 + Math.random() * 80;
+          this.ships.push({
+            ax: a.cx, ay: a.cy, bx: b.cx, by: b.cy,
+            cx: mx + (dirA.x + dirB.x) * off / 2, cy: my + (dirA.y + dirB.y) * off / 2,
+            t: 0, dur: 24 + Math.random() * 16,
+          });
+          this._shipT = 0;
+        }
+      }
+    }
+    for (const s of this.ships) s.t += dt;
+    this.ships = this.ships.filter(s => s.t < s.dur);
+  }
+  drawShips(t) {
+    const ctx = this.ctx;
+    if (!this.ships) return;
+    for (const s of this.ships) {
+      const u = s.t / s.dur;
+      const x = bez(s.ax, s.cx, s.bx, u), y = bez(s.ay, s.cy, s.by, u);
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = 'rgba(242,240,232,0.8)';
+      ctx.setLineDash([2, 6]);
+      ctx.beginPath();
+      for (let k = 0; k <= 10; k++) {
+        const uu = u + (k / 10) * (1 - u);
+        const px = bez(s.ax, s.cx, s.bx, uu), py = bez(s.ay, s.cy, s.by, uu);
+        k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const u2 = Math.min(1, u + 0.012);
+      const x2 = bez(s.ax, s.cx, s.bx, u2), y2 = bez(s.ay, s.cy, s.by, u2);
+      const ang = Math.atan2(y2 - y, x2 - x);
+      ctx.globalAlpha = 0.95;
+      ctx.translate(x, y);
+      ctx.rotate(ang);
+      ctx.fillStyle = '#3a2f22';
+      ctx.beginPath();
+      ctx.moveTo(5.5, 0); ctx.lineTo(-4.5, 2.8); ctx.lineTo(-4.5, -2.8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(246,241,226,0.95)';
+      ctx.beginPath(); ctx.moveTo(-0.5, -1); ctx.lineTo(-0.5, -8.5); ctx.lineTo(5, -1); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ---------- راه‌آهن و قطار ----------
+  drawRailways(state, dt, t) {
+    const ctx = this.ctx;
+    if (!this._trains) this._trains = new Map();
+    for (const p of state.map.provs) {
+      if (!(p.bld.railway > 0)) continue;
+      if (p.controller !== p.owner) continue;
+      for (const qid of p.adj) {
+        if (qid <= p.id) continue;
+        const q = state.map.provs[qid];
+        if (!(q.bld.railway > 0) || q.controller !== q.owner || q.owner !== p.owner) continue;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(52,40,28,0.85)';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.moveTo(p.cx, p.cy); ctx.lineTo(q.cx, q.cy); ctx.stroke();
+        const L = Math.hypot(q.cx - p.cx, q.cy - p.cy);
+        const nx = (q.cx - p.cx) / L, ny = (q.cy - p.cy) / L;
+        const px = -ny, py = nx;
+        ctx.strokeStyle = 'rgba(96,76,54,0.9)'; ctx.lineWidth = 1;
+        for (let dLen = 5; dLen < L - 4; dLen += 7) {
+          const x = p.cx + nx * dLen, y = p.cy + ny * dLen;
+          ctx.beginPath(); ctx.moveTo(x - px * 2.4, y - py * 2.4); ctx.lineTo(x + px * 2.4, y + py * 2.4); ctx.stroke();
+        }
+        const key = p.id + '-' + q.id;
+        let tr = this._trains.get(key);
+        if (!tr) { tr = { u: Math.random(), dir: 1 }; this._trains.set(key, tr); }
+        tr.u += (dt * 30 / L) * tr.dir;
+        if (tr.u > 1) { tr.u = 1; tr.dir = -1; }
+        if (tr.u < 0) { tr.u = 0; tr.dir = 1; }
+        const tx = p.cx + (q.cx - p.cx) * tr.u, ty = p.cy + (q.cy - p.cy) * tr.u;
+        const ang = Math.atan2(q.cy - p.cy, q.cx - p.cx) * tr.dir;
+        ctx.translate(tx, ty); ctx.rotate(ang);
+        ctx.fillStyle = '#241c14'; ctx.fillRect(-3.4, -1.6, 6.8, 3.2);
+        ctx.fillStyle = '#5a4632'; ctx.fillRect(-6.6, -1.4, 2.8, 2.8);
+        ctx.restore();
+        if (Math.random() < 0.08 && this.smoke.length < 380) {
+          this.smoke.push({ x: tx, y: ty - 2.5, vx: 0.3 + Math.random() * 0.8, vy: -4.5 - Math.random() * 2, life: 1.4, t: 0, r: 1.1 });
+        }
+      }
+    }
+  }
+
+  // ---------- پرنده‌ها ----------
+  updateBirds(dt) {
+    this._birdT = (this._birdT || 0) + dt;
+    if (!this.birdsF) this.birdsF = [];
+    if (this._birdT > 7 && this.birdsF.length < 3) {
+      this._birdT = 0;
+      this.birdsF.push({
+        x: -50, y: Math.random() * H * 0.6 + H * 0.12,
+        sp: 30 + Math.random() * 20, vy: (Math.random() - 0.5) * 12,
+        n: 4 + (Math.random() * 3 | 0), ph: Math.random() * 9,
+      });
+    }
+    for (const f of this.birdsF) { f.x += f.sp * dt; f.y += f.vy * dt; }
+    this.birdsF = this.birdsF.filter(f => f.x < W + 90 && f.y > -70 && f.y < H + 70);
+  }
+  drawBirds(t) {
+    const ctx = this.ctx;
+    if (!this.birdsF) return;
+    ctx.strokeStyle = 'rgba(42,36,28,0.55)';
+    ctx.lineWidth = 1;
+    for (const f of this.birdsF) {
+      for (let i = 0; i < f.n; i++) {
+        const bx = f.x - i * 9, by = f.y + Math.sin(t * 6 + f.ph + i) * 2 + (i % 2 ? 3.5 : -3.5);
+        const flap = Math.sin(t * 14 + i * 1.7 + f.ph) * 1.7;
+        ctx.beginPath();
+        ctx.moveTo(bx - 3.2, by - flap);
+        ctx.quadraticCurveTo(bx, by + 1.2, bx + 3.2, by - flap);
+        ctx.stroke();
+      }
+    }
   }
 
   drawNames(state, ui) {
@@ -315,7 +496,7 @@ export class MapRenderer {
       const n = state.nations[p.owner];
       const pop = this.provPop(p);
       const rng = mulberry32(p.id * 331 + 7);
-      const urbanLvl = ['textile', 'tool_work', 'furniture', 'glasswork', 'arms_ind', 'university', 'port', 'railway'].reduce((a, k) => a + (p.bld[k] || 0), 0);
+      const urbanLvl = ['textile', 'tool_work', 'furniture', 'glasswork', 'arms_ind', 'university', 'port', 'railway', 'steel_mill'].reduce((a, k) => a + (p.bld[k] || 0), 0);
       const size = clamp(Math.sqrt(pop / 20000), 1.4, 9) + urbanLvl * 0.35;
       const houses = clamp(Math.round(size), 2, 9);
       ctx.fillStyle = 'rgba(46,38,30,0.9)';
@@ -356,7 +537,7 @@ export class MapRenderer {
     if (this._smokeT > 0.14) {
       this._smokeT = 0;
       for (const p of state.map.provs) {
-        const ind = (p.bld.textile || 0) + (p.bld.tool_work || 0) + (p.bld.arms_ind || 0) + (p.bld.glasswork || 0) + (p.bld.furniture || 0);
+        const ind = (p.bld.textile || 0) + (p.bld.tool_work || 0) + (p.bld.arms_ind || 0) + (p.bld.glasswork || 0) + (p.bld.furniture || 0) + ((p.bld.steel_mill || 0) * 1.3);
         if (ind > 0 && Math.random() < Math.min(0.9, ind * 0.22) && this.smoke.length < 380) {
           this.smoke.push({ x: p.cx + (Math.random() - 0.5) * 14, y: p.cy - 6, vx: 1.5 + Math.random() * 2, vy: -7 - Math.random() * 5, life: 2.8 + Math.random() * 2, t: 0, r: 2.3 + Math.random() * 2 });
         }
@@ -513,6 +694,17 @@ export class MapRenderer {
 
 // ---------- کمکی ----------
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function bez(a, c, b, u) { const v = 1 - u; return v * v * a + 2 * v * u * c + u * u * b; }
+function seaDir(state, p) {
+  const { cells } = state.map.grid;
+  for (let a8 = 0; a8 < 8; a8++) {
+    const ang = (a8 / 8) * Math.PI * 2;
+    const gx = clamp(Math.round(p.cx / CELL + Math.cos(ang) * 3), 0, GW - 1);
+    const gy = clamp(Math.round(p.cy / CELL + Math.sin(ang) * 3), 0, GH - 1);
+    if (cells[gy * GW + gx] < 0) return { x: Math.cos(ang), y: Math.sin(ang) };
+  }
+  return { x: 0, y: -1 };
+}
 function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 function mixRgb(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
 function contrast(c1, c2) {

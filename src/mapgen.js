@@ -125,6 +125,49 @@ export function genMap(seed) {
     if (cells[i] >= 0) cells[i] = idMap.get(cells[i]);
   }
 
+  // ---- رودخانه‌ها: جریان از بلندی به سمت دریا ----
+  const rivers = [];
+  const coastSea = [];
+  for (let y = 1; y < GH - 1; y++) for (let x = 1; x < GW - 1; x++) {
+    const i = y * GW + x;
+    if (isSea(i)) {
+      // سلول دریای کنار خشکی (برای امواج)
+      if (!isSea(i - 1) || !isSea(i + 1) || !isSea(i - GW) || !isSea(i + GW)) coastSea.push(i);
+    }
+  }
+  const isSeaF = isSea;
+  for (let rTry = 0; rTry < 12; rTry++) {
+    let guard = 0, start = -1;
+    while (guard++ < 400) {
+      const x = 2 + Math.floor(rng() * (GW - 4)), y = 2 + Math.floor(rng() * (GH - 4));
+      const i = y * GW + x;
+      if (!isSeaF(i) && elev[i] > 0.71) { start = i; break; }
+    }
+    if (start < 0) continue;
+    const path = [start];
+    const seen = new Set(path);
+    let cur = start;
+    while (path.length < 110) {
+      const cx = cur % GW, cy = (cur / GW) | 0;
+      const nbs = [];
+      let nearSea = false;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 1 || ny < 1 || nx >= GW - 1 || ny >= GH - 1) continue;
+        const ni = ny * GW + nx;
+        if (isSeaF(ni)) { nearSea = true; continue; }
+        if (!seen.has(ni)) nbs.push(ni);
+      }
+      if (nearSea) break;
+      if (!nbs.length) break;
+      nbs.sort((a, b) => (elev[a] - elev[b]) + (rng() - 0.5) * 0.06);
+      const next = nbs[0];
+      if (elev[next] > elev[cur] + 0.05) break; // نمی‌تواند بالا رود
+      cur = next; seen.add(cur); path.push(cur);
+    }
+    if (path.length > 9) rivers.push(path);
+  }
+
   for (const p of provList) {
     // زمین غالب
     if (p.elev > MOUNT) p.terrain = 'mountain';
@@ -143,7 +186,19 @@ export function genMap(seed) {
     if (p.terrain === 'mountain') { p.res.iron = 0.35 + r * 0.65; if (rng() < 0.55) p.res.coal = 0.3 + rng() * 0.7; }
     else if (p.terrain === 'hills') { p.res.coal = rng() < 0.5 ? 0.3 + rng() * 0.6 : 0; p.res.iron = rng() < 0.45 ? 0.3 + rng() * 0.55 : 0; }
     else if (rng() < 0.12) { p.res.coal = 0.4 + rng() * 0.5; }
+    p.river = 0;
     p.name = pick(rng, PROV_SYLL_A) + pick(rng, PROV_SYLL_B);
+  }
+  // تاثیر رودخانه روی استان‌ها (حاصلخیزی)
+  for (const path of rivers) {
+    for (const i of path) {
+      const pid = cells[i];
+      if (pid >= 0) {
+        const pv = provList[pid];
+        pv.river++;
+        pv.res.farm = Math.min(1, pv.res.farm + 0.06);
+      }
+    }
   }
 
   // ---- ملت‌ها: بذر دورافتاده + رشد منطقه‌ای ----
@@ -212,6 +267,8 @@ export function genMap(seed) {
     provs: provList,
     nNations: NN,
     capitals,
+    rivers,
+    coastSea,
     w: W, h: H,
   };
 }

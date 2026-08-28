@@ -1,5 +1,5 @@
 // ---------- رابط کاربری: منو، HUD، پنل‌ها، رویدادها ----------
-import { GOODS, BUILDINGS, TECHS, TECH_BRANCHES, LAWS, LAW_CATS, GROUPS, TAX_LEVELS, POP_CLASSES, TERRAIN, NATION_DEFS, EVENTS } from './data.js';
+import { GOODS, BUILDINGS, TECHS, TECH_BRANCHES, LAWS, LAW_CATS, GROUPS, TAX_LEVELS, POP_CLASSES, TERRAIN, NATION_DEFS, EVENTS, MISSIONS } from './data.js';
 import { fd, fd1, fK, fMoney, fSign, fPct, fDate, fYearMonth, esc, el, clamp } from './utils.js';
 import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
@@ -140,6 +140,7 @@ export function refreshTopbar() {
   document.getElementById('tb-prestige').innerHTML = `👑 ${fd(pn.prestige)}`;
   document.getElementById('tb-pop').innerHTML = `👥 ${fK(SIM.nationPop(S, pn.id))}`;
   document.getElementById('tb-innov').innerHTML = `🎓 ${pn.res && pn.res.key ? fd1(pn.res.pts) + '/' + fd(TECHS[pn.res.key].cost) : '—'}`;
+  document.getElementById('tb-lit').innerHTML = `📖 ${fd(Math.round(pn.literacy || 0))}٪`;
   const b = document.getElementById('tb-army');
   b.innerHTML = `🪖 ${fd(Math.round(SIM.armiesOf(S, pn.id).reduce((a, x) => a + x.size, 0)))} + ${fd(Math.max(0, Math.floor(pn.battalions - SIM.armiesOf(S, pn.id).reduce((a, x) => a + x.size, 0))))}`;
   document.getElementById('tb-date').textContent = fDate(S.week);
@@ -211,7 +212,7 @@ export function renderPanel() {
   const body = document.getElementById('panel-body');
   const scroll = body.scrollTop;
   const head = document.getElementById('panel-title');
-  const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog }[UI.panel];
+  const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions }[UI.panel];
   if (!fn) return;
   const res = fn();
   head.textContent = res.title;
@@ -295,11 +296,13 @@ function panelProvince() {
     if (bd.innovation) prodTxt.push(`🎓${bd.innovation}`);
     let consTxt = [];
     for (const g in bd.cons) consTxt.push(`${GOODS[g].icon}${bd.cons[g]}`);
+    const prof = estProfit(k);
     html += `<div class="bld ${lvl ? '' : 'off'}">
       <div class="bld-ic">${bd.icon}</div>
       <div class="bld-mid">
         <div class="bld-name">${bd.name} <span class="lvl">${fd(lvl)}/${fd(cap)}</span></div>
         <div class="bld-sub dim">${prodTxt.join(' ')}${prodTxt.length && consTxt.length ? ' ← ' : ''}${consTxt.join(' ')}</div>
+        <div class="bld-sub ${prof >= 0 ? 'pos' : 'neg'}" style="font-size:9.5px">${prof >= 0 ? '≈سود' : '≈زیان'} ${fMoney(prof)}/سطح</div>
       </div>
       ${own ? `<button class="plus ${chk.ok ? '' : 'dis'}" data-act="build" data-k="${k}" ${chk.ok ? '' : `title="${esc(chk.why || '')}"`}>
         +<span class="cost">${fMoney(bd.cost)}</span></button>` : ''}
@@ -321,6 +324,16 @@ function panelProvince() {
 }
 function bar(label, v, txt, cls) {
   return `<div class="bar-row"><span class="bar-lb">${label}</span><div class="bar"><i class="${cls}" style="width:${clamp(v * 100, 0, 100)}%"></i></div><b>${txt}</b></div>`;
+}
+// تخمین سود هفتگی هر سطح ساختمان با قیمت‌های جاری (مقیاس: PS=0.3، WAGE=9)
+function estProfit(key) {
+  const bd = BUILDINGS[key];
+  let rev = 0, mat = 0, wag = 0;
+  for (const g in bd.prod) rev += bd.prod[g] * S.goods[g].price * 0.3;
+  for (const g in bd.cons) mat += bd.cons[g] * S.goods[g].price * 0.3;
+  for (const c in bd.jobs) wag += (bd.jobs[c] / 1000) * POP_CLASSES[c].wage * 9;
+  if (bd.income) rev += bd.income;
+  return rev - mat - wag;
 }
 
 // ---------- بازار ----------
@@ -642,6 +655,99 @@ function panelLog() {
   return { title: '📜 تاریخچه رویدادها', html };
 }
 
+// ---------- کشور (نمای کلی) ----------
+function panelCountry() {
+  const pn = S.nations[S.playerId];
+  const rk = SIM.ranking(S).filter(n => n.alive);
+  const rank = rk.findIndex(r => r.id === pn.id) + 1;
+  const pops = {};
+  let tot = 0, bldTot = 0;
+  for (const p of S.map.provs) {
+    if (p.owner !== pn.id) continue;
+    for (const c in p.pops) { pops[c] = (pops[c] || 0) + p.pops[c]; tot += p.pops[c]; }
+    for (const k in p.bld) bldTot += p.bld[k];
+  }
+  const popMax = Math.max(...Object.values(pops), 1);
+  let rows = '';
+  for (const c in POP_CLASSES) {
+    const v = pops[c] || 0;
+    rows += `<div class="bar-row"><span class="bar-lb">${POP_CLASSES[c].icon} ${POP_CLASSES[c].name}</span><div class="bar"><i class="mid" style="width:${clamp(v / popMax * 100, 0.5, 100)}%"></i></div><b>${fK(v)}</b></div>`;
+  }
+  const provN = S.map.provs.filter(p => p.owner === pn.id).length;
+  const doneM = (pn.missionsDone || []).length;
+  return {
+    title: '🏰 کشور — نمای کلی',
+    html: `
+    <div class="kv">
+      <div>👑 رتبه جهانی <b>${fd(rank)} از ${fd(rk.length)}</b></div>
+      <div>🗺️ استان‌ها <b>${fd(provN)}</b></div>
+      <div>🏢 ساختمان‌ها <b>${fd(bldTot)}</b></div>
+      <div>👥 جمعیت <b>${fK(tot)}</b></div>
+    </div>
+    <div class="bar-row"><span class="bar-lb">📖 سواد</span><div class="bar"><i class="good" style="width:${clamp(pn.literacy || 0, 1, 100)}%"></i></div><b>${fd(Math.round(pn.literacy || 0))}٪</b></div>
+    <div class="dim hint">سواد با دانشگاه و فناوری سوادآموزی رشد می‌کند و بر مشاغل منشی و سرعت پژوهش اثر دارد.</div>
+    <div class="sec">مسیر تولید ناخالص</div>
+    <div class="chart-box"><canvas id="cn-gdp" width="380" height="88"></canvas></div>
+    <div class="sec">مسیر امید به زندگی</div>
+    <div class="chart-box"><canvas id="cn-sol" width="380" height="66"></canvas></div>
+    <div class="sec">ترکیب جمعیت</div>${rows}
+    <div class="sec">مأموریت‌ها</div>
+    <div class="dim">${fd(doneM)} از ${fd(MISSIONS.length)} تکمیل شده — برای جزئیات پنل 🎯 را ببینید</div>`,
+    after() {
+      const g = document.getElementById('cn-gdp');
+      if (g) lineChart(g, S.stats.gdp[pn.id] || [], '#e8c766');
+      const s2 = document.getElementById('cn-sol');
+      if (s2) lineChart(s2, S.stats.sol[pn.id] || [], '#8fbc6a');
+    }
+  };
+}
+function lineChart(cv, data, color) {
+  const c = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  c.fillStyle = 'rgba(240,230,200,0.05)'; c.fillRect(0, 0, w, h);
+  if (!data || data.length < 2) { c.fillStyle = '#998f76'; c.font = '11px Vazirmatn'; c.fillText('جمع‌آوری داده…', 10, h / 2); return; }
+  const mn = Math.min(...data), mx = Math.max(...data), r = Math.max(mx - mn, 1e-6);
+  c.strokeStyle = color; c.lineWidth = 1.6; c.beginPath();
+  data.forEach((v, i) => {
+    const x = 3 + (i / (data.length - 1)) * (w - 6);
+    const y = h - 4 - ((v - mn) / r) * (h - 10);
+    i ? c.lineTo(x, y) : c.moveTo(x, y);
+  });
+  c.stroke();
+  c.fillStyle = '#e8dfc4'; c.font = '9.5px Vazirmatn'; c.textAlign = 'left';
+  c.fillText(fK(mx), 4, 10);
+  c.fillText(fK(mn), 4, h - 3);
+}
+
+// ---------- مأموریت‌ها ----------
+function panelMissions() {
+  const pn = S.nations[S.playerId];
+  const done = pn.missionsDone || [];
+  let html = '<div class="dim hint">هدف‌های کلان امپراتوری؛ با تکمیل هرکدام پاداش می‌گیرید.</div>';
+  const sorted = MISSIONS.slice().sort((a, b2) => (done.includes(a.id) ? 1 : 0) - (done.includes(b2.id) ? 1 : 0));
+  for (const m of sorted) {
+    const isDone = done.includes(m.id);
+    let p = { cur: 0, max: 1 };
+    try { p = m.prog(S, SIM.missionHelpers, pn); } catch (e) { }
+    const pct = clamp(p.cur / p.max * 100, 0, 100);
+    const rw = [];
+    if (m.reward.money) rw.push('💰' + fK(m.reward.money));
+    if (m.reward.prestige) rw.push('👑+' + fd(m.reward.prestige));
+    if (m.reward.research) rw.push('🎓+' + fd(m.reward.research));
+    if (m.reward.solAll) rw.push('😊+' + fd(m.reward.solAll));
+    html += `<div class="mission ${isDone ? 'done' : ''}">
+      <span class="mi-ic">${m.icon}</span>
+      <div class="mi-mid">
+        <div class="mi-nm">${m.title} ${isDone ? '✅' : ''}</div>
+        <div class="dim small">${m.desc}</div>
+        <div class="bar"><i class="${isDone ? 'good' : 'mid'}" style="width:${pct}%"></i></div>
+      </div>
+      <div class="mi-side"><b>${fd(Math.min(Math.floor(p.cur), p.max))}/${fd(p.max)}</b><br><span class="dim small">${rw.join(' ')}</span></div>
+    </div>`;
+  }
+  return { title: '🎯 مأموریت‌ها', html };
+}
+
 // ================== اکشن‌های پنل ==================
 function bindPanelActions() {
   document.querySelectorAll('#panel-body [data-act]').forEach(b => {
@@ -847,11 +953,24 @@ function toast(icon, text) {
 }
 export { toast };
 
+let endShown = false;
 function checkEnd() {
   const pn = S.nations[S.playerId];
   const m = document.getElementById('endscreen');
-  if (m.style.display === 'flex') return;
-  if (S.defeat) {
+  if (m.style.display === 'flex' || endShown) return;
+  if (S.gameOver) {
+    const rk = SIM.ranking(S).filter(n2 => n2.alive);
+    const rank = rk.findIndex(r => r.id === pn.id) + 1;
+    const win = rank === 1;
+    showEnd(win ? '👑' : '📜', win ? 'پیروزی بزرگ!' : 'پایان قرن', '');
+    const rows = rk.map((n2, i) => {
+      const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : fd(i + 1) + '.';
+      return `<div class="endrow ${n2.player ? 'me' : ''}"><span>${medal}</span><b>${esc(n2.name)}</b><span class="dim">اعتبار ${fd(Math.round(n2.prestige))}</span></div>`;
+    }).join('');
+    document.getElementById('end-text').innerHTML =
+      `قرن نوزدهم به پایان رسید. رتبه نهایی شما: <b class="gold">${fd(rank)}</b> از ${fd(rk.length)}` +
+      `<div class="endtable">${rows}</div>`;
+  } else if (S.defeat) {
     showEnd('💀', 'سقوط', 'سرزمین شما به‌تمامی از دست رفت. تاریخ، صفحه‌تراش تازه‌ای خواهد یافت...');
   } else if (S.victory) {
     showEnd('👑', 'پیروزی!', `${pn.name} در آستانه قرن نو به بزرگ‌ترین قدرت جهان بدل شد!`);
@@ -859,11 +978,12 @@ function checkEnd() {
 }
 function showEnd(icon, title, text) {
   const m = document.getElementById('endscreen');
+  endShown = true;
   m.style.display = 'flex';
   document.getElementById('end-ic').textContent = icon;
   document.getElementById('end-title').textContent = title;
   document.getElementById('end-text').textContent = text;
-  document.getElementById('end-continue').onclick = () => { Audio2.click(); m.style.display = 'none'; };
+  document.getElementById('end-continue').onclick = () => { Audio2.click(); m.style.display = 'none'; S.paused = false; refreshTopbar(); };
   document.getElementById('end-menu').onclick = () => { location.reload(); };
 }
 
