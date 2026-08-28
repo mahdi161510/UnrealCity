@@ -2,8 +2,8 @@
 import { mulberry32, makeNoise2D, fbm, pick } from './utils.js';
 import { PROV_SYLL_A, PROV_SYLL_B, NATION_DEFS } from './data.js';
 
-export const GW = 168, GH = 96;          // شبکه سلولی
-export const CELL = 12;                  // پیکسل هر سلول (منطقی)
+export const GW = 232, GH = 130;         // شبکه سلولی (بزرگ‌تر برای نقشه‌ی عظیم‌تر)
+export const CELL = 10;                  // پیکسل هر سلول (منطقی)
 export const W = GW * CELL, H = GH * CELL;
 
 export function genMap(seed) {
@@ -29,7 +29,7 @@ export function genMap(seed) {
   const landCount = (() => { let n = 0; for (let i = 0; i < cells.length; i++) if (!isSea(i)) n++; return n; })();
 
   // ---- رشد استان‌ها از بذرها (flood trading) ----
-  const nProv = Math.max(58, Math.min(78, Math.round(landCount / 105)));
+  const nProv = Math.max(80, Math.min(112, Math.round(landCount / 185)));
   const seeds = [];
   let guard = 0;
   while (seeds.length < nProv && guard++ < 6000) {
@@ -136,7 +136,7 @@ export function genMap(seed) {
     }
   }
   const isSeaF = isSea;
-  for (let rTry = 0; rTry < 12; rTry++) {
+  for (let rTry = 0; rTry < 18; rTry++) {
     let guard = 0, start = -1;
     while (guard++ < 400) {
       const x = 2 + Math.floor(rng() * (GW - 4)), y = 2 + Math.floor(rng() * (GH - 4));
@@ -147,7 +147,7 @@ export function genMap(seed) {
     const path = [start];
     const seen = new Set(path);
     let cur = start;
-    while (path.length < 110) {
+    while (path.length < 150) {
       const cx = cur % GW, cy = (cur / GW) | 0;
       const nbs = [];
       let nearSea = false;
@@ -247,12 +247,33 @@ export function genMap(seed) {
   }
   provList.forEach((p, i) => { p.owner = owner[i]; p.controller = owner[i]; });
 
-  // پایتخت: دورترین از مرزهای خارجی
+  // پایتخت: دورترین از مرزهای خارجی (حتماً روی بخش سرزمین-اصلی ملت، نه جزیره‌ی کوچک)
+  const compOf = new Array(provList.length).fill(-1);
+  let compCount = 0;
+  for (let i = 0; i < provList.length; i++) {
+    if (compOf[i] !== -1) continue;
+    const stack = [i]; compOf[i] = compCount;
+    while (stack.length) {
+      const c = stack.pop();
+      for (const nb of provList[c].adj) if (compOf[nb] === -1) { compOf[nb] = compCount; stack.push(nb); }
+    }
+    compCount++;
+  }
   const capitals = new Array(NN).fill(0);
   for (let n = 0; n < NN; n++) {
     const mine = provList.filter(p => p.owner === n);
-    let best = mine[0], bd = -1;
-    for (const p of mine) {
+    // مؤلفه‌ی برتر خشکی سبزِ این ملت (بخش اصلی قاره — ثروت اصلی این‌جاست؛ جزیره‌ها جدا)
+    const compSize = {};
+    for (const p of mine) compSize[compOf[p.id]] = (compSize[compOf[p.id]] || 0) + 1;
+    // پیش از آن بر اساس بزرگ‌ترین مؤلفه‌ی خشکیِ سبز (نه جزیره‌ها) تعیین کن
+    const greenCompSize = {};
+    for (const p of mine) if (p.land !== 'island_ish') greenCompSize[compOf[p.id]] = (greenCompSize[compOf[p.id]] || 0) + 1;
+    const bestComp = Object.keys(greenCompSize).length
+      ? Object.entries(greenCompSize).sort((a2, b2) => b2[1] - a2[1])[0][0]
+      : Object.entries(compSize).sort((a2, b2) => b2[1] - a2[1])[0]?.[0];
+    const mainland = mine.filter(p => String(compOf[p.id]) === String(bestComp));
+    let best = mainland[0] || mine[0], bd = -1;
+    for (const p of mainland.length ? mainland : mine) {
       let dm = 1e9;
       for (const q of provList) if (q.owner !== n) { const d = Math.hypot(p.cx - q.cx, p.cy - q.cy); if (d < dm) dm = d; }
       const score = dm + (p.coast ? 30 : 0);

@@ -1,5 +1,5 @@
 // ---------- رابط کاربری: منو، HUD، پنل‌ها، رویدادها ----------
-import { GOODS, BUILDINGS, TECHS, TECH_BRANCHES, LAWS, LAW_CATS, GROUPS, TAX_LEVELS, POP_CLASSES, TERRAIN, NATION_DEFS, EVENTS, MISSIONS } from './data.js';
+import { GOODS, BUILDINGS, TECHS, TECH_BRANCHES, LAWS, LAW_CATS, GROUPS, TAX_LEVELS, POP_CLASSES, TERRAIN, NATION_DEFS, EVENTS, MISSIONS, ERAS, PERSONALITIES, TALK_TOPICS, FAMILY_ROLES_FA } from './data.js';
 import { fd, fd1, fK, fMoney, fSign, fPct, fDate, fYearMonth, esc, el, clamp } from './utils.js';
 import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
@@ -144,6 +144,8 @@ export function refreshTopbar() {
   const b = document.getElementById('tb-army');
   b.innerHTML = `🪖 ${fd(Math.round(SIM.armiesOf(S, pn.id).reduce((a, x) => a + x.size, 0)))} + ${fd(Math.max(0, Math.floor(pn.battalions - SIM.armiesOf(S, pn.id).reduce((a, x) => a + x.size, 0))))}`;
   document.getElementById('tb-date').textContent = fDate(S.week);
+  const eraEl = document.getElementById('tb-era');
+  if (eraEl) { eraEl.textContent = `${ERAS[S.era || 0].name}${S.phase === 'prologue' ? ' — دوران شاهزادی' : ''}`; eraEl.title = 'عصر کنونی؛ فناوری‌ها و قابلیت‌های تازه با پیشروی زمان گشایش می‌یابند'; }
   for (let i = 0; i <= 4; i++) {
     const btn = document.getElementById('sp' + i);
     btn.classList.toggle('on', i === 0 ? S.paused : (!S.paused && S.speed === i));
@@ -212,7 +214,7 @@ export function renderPanel() {
   const body = document.getElementById('panel-body');
   const scroll = body.scrollTop;
   const head = document.getElementById('panel-title');
-  const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions }[UI.panel];
+  const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions, family: panelFamily }[UI.panel];
   if (!fn) return;
   const res = fn();
   head.textContent = res.title;
@@ -328,10 +330,12 @@ function bar(label, v, txt, cls) {
 // تخمین سود هفتگی هر سطح ساختمان با قیمت‌های جاری (مقیاس: PS=0.3، WAGE=9)
 function estProfit(key) {
   const bd = BUILDINGS[key];
+  const pn = S.nations[S.playerId];
+  const wm = SIM.wageMult(S, pn);
   let rev = 0, mat = 0, wag = 0;
-  for (const g in bd.prod) rev += bd.prod[g] * S.goods[g].price * 0.3;
-  for (const g in bd.cons) mat += bd.cons[g] * S.goods[g].price * 0.3;
-  for (const c in bd.jobs) wag += (bd.jobs[c] / 1000) * POP_CLASSES[c].wage * 9;
+  for (const g in bd.prod) rev += bd.prod[g] * S.goods[g].price * 0.26;
+  for (const g in bd.cons) mat += bd.cons[g] * S.goods[g].price * 0.26;
+  for (const c in bd.jobs) wag += (bd.jobs[c] / 1000) * POP_CLASSES[c].wage * 9 * wm;
   if (bd.income) rev += bd.income;
   return rev - mat - wag;
 }
@@ -405,11 +409,12 @@ function panelTech() {
       const t = TECHS[k];
       if (t.br !== br) continue;
       const done = pn.tech.includes(k);
-      const locked = t.prereq && !t.prereq.every(x => pn.tech.includes(x));
+      const eraLocked = (t.era ?? 0) > (S.era || 0);
+      const locked = (t.prereq && !t.prereq.every(x => pn.tech.includes(x))) || eraLocked;
       const active = pn.res.key === k;
-      cols += `<div class="tech ${done ? 'done' : active ? 'active' : locked ? 'locked' : ''}" data-act="research" data-k="${k}" title="${esc(t.desc)}">
+      cols += `<div class="tech ${done ? 'done' : active ? 'active' : locked ? 'locked' : ''}" data-act="research" data-k="${k}" title="${esc(t.desc)}${eraLocked && !done ? ' — گشایش در ' + ERAS[t.era].name : ''}">
         <span class="tech-ic">${t.icon}</span>
-        <span class="tech-nm">${t.name}${done ? ' ✓' : ''}</span>
+        <span class="tech-nm">${t.name}${done ? ' ✓' : eraLocked ? ` <span class="chip lock">🔒 ${ERAS[t.era].name}</span>` : ''}</span>
         <span class="tech-cost dim">${done ? '' : fd(t.cost)}</span>
       </div>`;
     }
@@ -427,6 +432,7 @@ function panelPolitics() {
     <div><span>💰 مالیات</span><b class="pos">${fMoney(L.taxIncome)}</b></div>
     <div><span>⚓ عوارض تجاری</span><b class="pos">${fMoney(L.tariffs)}</b></div>
     <div><span>🏛️ دیوان‌سالاری</span><b class="neg">−${fK(L.govWages)}</b></div>
+    <div><span>⚙️ نگهداشت تأسیسات</span><b class="neg">−${fK(L.upkeep || 0)}</b></div>
     <div><span>🪖 ارتش</span><b class="neg">−${fK(L.armyUpkeep)}</b></div>
     <div><span>🏗️ ساخت‌وساز</span><b class="neg">−${fK(L.construction)}</b></div>
     <div class="total"><span>تراز</span><b class="${L.balance >= 0 ? 'pos' : 'neg'}">${fSign(L.balance)}</b></div>
@@ -568,8 +574,9 @@ function panelMilitary() {
   let html = `<div class="kv">
     <div>🪖 گردان‌ها <b>${fd(Math.round(fielded))} + ${fd(Math.floor(reserve))} ذخیره</b></div>
     <div>🏰 ظرفیت (پادگان) <b>${fd(cap)}</b></div>
+    <div>🔥 خستگی جنگ <b class="${(pn.warExh || 0) > 35 ? 'neg' : ''}">${fd(Math.round(pn.warExh || 0))}٪</b></div>
   </div>
-  <div class="dim hint">برای فرمان: ارتش را «برگزینید» و سپس روی استان مقصد کلیک کنید. ورود به خاک دشمن جنگ است.</div>
+  <div class="dim hint">برای فرمان: ارتش را «برگزینید» و سپس روی استان مقصد کلیک کنید. خوابگاه در زمین خودی، سنگر می‌سازد؛ محاصره‌ی زمین دشمن تدارکات را می‌پوساند.</div>
   <div class="row-btns">
     <button class="btn small" data-act="newarmy">➕ ارتش تازه در پایتخت</button>
     ${UI.selArmy ? `<button class="btn small ghost" data-act="desel">لغو انتخاب ارتش</button>` : ''}
@@ -579,8 +586,10 @@ function panelMilitary() {
   for (const a of armies) {
     const p = S.map.provs[a.prov];
     const st = a.status === 'battle' ? '⚔️ در نبرد' : a.status === 'move' ? `🏃 به‌سوی ${S.map.provs[a.path[a.path.length - 1]]?.name ?? ''}` : '🧍 آماده‌باش';
+    const genTx = a.gen ? ` — ${esc(a.gen.name)}${a.gen.skill >= 1.15 ? ' ⭐' : ''}` : '';
+    const digTx = (a.dig || 0) > 2 ? ` 🛡️+${fd(Math.round(a.dig))}` : '';
     html += `<div class="army ${UI.selArmy === a.id ? 'sel' : ''}">
-      <div class="army-mid"><b>${fd(Math.round(a.size))} 🪖</b> در ${esc(p.name)} <span class="dim">— ${st}</span>
+      <div class="army-mid"><b>${fd(Math.round(a.size))} 🪖${genTx}${digTx}</b> در ${esc(p.name)} <span class="dim">— ${st}</span>
         <div class="bar"><i class="${a.org > 50 ? 'good' : 'mid'}" style="width:${a.org}%"></i></div></div>
       <div class="dip-btns">
         <button class="mini-btn" data-act="selarmy" data-id="${a.id}" title="برگزیدن برای فرمان">🎯</button>
@@ -748,6 +757,95 @@ function panelMissions() {
   return { title: '🎯 مأموریت‌ها', html };
 }
 
+// ---------- دربار سلطنتی (خانواده) ----------
+function panelFamily() {
+  const pn = S.nations[S.playerId];
+  const per = pn.personality ? PERSONALITIES[pn.personality] : null;
+  let html = '';
+  if (S.phase === 'prologue') {
+    const done = (S.prologue?.step || 0), tot = 6;
+    html += `<div class="prologue-banner">👑 <b>دوران شاهزادی</b> — پیش از تاج، سلسله تصمیم‌هایی در راه است که شخصیت حکومت شما را می‌سازد…
+      <div class="bar big prolit"><i class="gold" style="width:${done / tot * 100}%"></i></div>`;
+    const t = S.prologue?.traits || {};
+    const tStr = Object.entries(t).map(([k, v]) => `${PERSONALITIES[k]?.icon || ''} ${PERSONALITIES[k]?.name || k} ×${fd(v)}`).join('، ');
+    html += `<div class="dim small">${tStr ? 'گرایش‌های فعلی: ' + tStr : 'هنوز تصمیم معناداری نگرفته‌اید'}</div></div>`;
+  } else if (per) {
+    html += `<div class="prologue-banner">👑 فرمانروای ${esc(pn.name)} — سبک حکومت: <b>${per.icon} ${per.name}</b> <span class="dim">(${per.desc})</span></div>`;
+  }
+  html += `<div class="fam-card me"><img class="fam-avatar" src="assets/family/prince.jpg" alt="">
+    <div class="fam-mid"><b>${S.phase === 'prologue' ? 'شاهزاده' : 'فرمانروا'} — شما</b>
+    <div class="fam-traits"><span class="chip">${S.phase === 'prologue' ? 'وارث تاج' : 'تاج‌دار'}</span>${per ? `<span class="chip">${per.icon} ${per.name}</span>` : ''}</div></div></div>`;
+  for (const m of S.family || []) {
+    const relPct = Math.max(0, Math.min(100, m.rel));
+    const sub = m.alive ? '' : (m.fled ? '(گریخته — مدعی تاج)' : '(درگذشت)');
+    html += `<div class="fam-card ${m.alive ? '' : 'dead'}">
+      <img class="fam-avatar" src="${m.avatar}" alt="">
+      <div class="fam-mid">
+        <b>${esc(m.name)}</b> <span class="dim small">${FAMILY_ROLES_FA[m.role] || m.role} — ${fd(Math.floor(m.age))} سال ${sub}</span>
+        <div class="fam-traits">${(m.traits || []).map(t => `<span class="chip">${esc(t)}</span>`).join('')}${m.jailed && m.alive ? '<span class="chip bad">حصر سلطنتی</span>' : ''}</div>
+      </div>
+      <div class="fam-rel">${m.alive ? `<div class="bar"><i class="${relPct > 65 ? 'good' : relPct > 35 ? 'mid' : 'bad'}" style="width:${relPct}%"></i></div><span class="dim small">رابطه ${fd(Math.round(relPct))}</span>
+        <button class="mini-btn" data-act="talk" data-id="${m.id}" title="گفت‌وگو">💬</button>` : '<span class="dim">🕯️</span>'}
+      </div>
+    </div>`;
+  }
+  html += `<div class="dim hint">💬 با اعضای دربار گفت‌وگو کنید؛ رابطه‌ی بالاتر یاری بیشتری می‌آورد (و «درخواست یاری» را ممکن می‌سازد). رابطه‌ی پایین برادر، خواب‌های خطرناک می‌پروراند…</div>`;
+  return { title: '🏰 دربار سلطنتی', html };
+}
+
+// ---------- مودال گفت‌وگو ----------
+let chatMember = null;
+function topicName(id) { const t = TALK_TOPICS.find(x => x.id === id); return t ? t.name : id; }
+function showChat(mId) {
+  const m = (S.family || []).find(x => x.id === mId && x.alive);
+  if (!m) return;
+  chatMember = mId;
+  document.getElementById('chat-modal').style.display = 'flex';
+  renderChat();
+}
+function renderChat() {
+  const m = (S.family || []).find(x => x.id === chatMember && x.alive);
+  if (!m) { document.getElementById('chat-modal').style.display = 'none'; return; }
+  const box = document.getElementById('chat-box');
+  const relClass = m.rel >= 68 ? 'good' : m.rel > 32 ? 'mid' : 'bad';
+  let histHtml = '';
+  for (const h of (m.hist || [])) {
+    histHtml += `<div class="chat-row q"><span class="chat-bubble">${esc(h.free || topicName(h.topic))}</span></div>
+      <div class="chat-row a"><span class="chat-bubble">${esc(h.a)} <span class="dim small">${h.dRel > 0 ? `(+${fd(h.dRel)})` : h.dRel < 0 ? `(${fd(h.dRel)})` : ''} ${h.note ? esc(h.note) : ''}</span></span></div>`;
+  }
+  box.innerHTML = `
+    <div class="chat-head">
+      <img class="fam-avatar big" src="${m.avatar}" alt="">
+      <div class="chat-head-mid"><b>${esc(m.name)}</b><div class="dim small">${FAMILY_ROLES_FA[m.role]} — ${fd(Math.floor(m.age))} سال</div>
+      <div class="bar chatrel"><i class="${relClass}" style="width:${m.rel}%"></i></div></div>
+      <button class="mini-btn" id="chat-close">✕</button>
+    </div>
+    <div class="chat-log" id="chat-log">${histHtml || '<div class="dim small">گفت‌وگو را آغاز کنید؛ موضوعی برگزینید یا چیزی بنویسید…</div>'}</div>
+    <div class="chat-topics">${TALK_TOPICS.map(t => `<button class="mini-btn chat-tp" data-tp="${t.id}">${t.name}</button>`).join('')}</div>
+    <div class="chat-input"><input id="chat-free" placeholder="چیزی بنویسید… مثلاً: درباره‌ی جنگ با همسایه‌ها چه می‌گویی؟"><button id="chat-send" class="mini-btn">➤</button></div>`;
+  document.getElementById('chat-close').onclick = () => { Audio2.click(); document.getElementById('chat-modal').style.display = 'none'; if (UI.panel === 'family') renderPanel(); };
+  box.querySelectorAll('.chat-tp').forEach(b => b.onclick = () => {
+    Audio2.click();
+    SIM.familyTalk(S, m.id, b.dataset.tp);
+    renderChat(); refreshTopbar();
+    if (UI.panel === 'family') renderPanel();
+  });
+  const send = () => {
+    const inp = document.getElementById('chat-free');
+    const txt = inp.value.trim();
+    if (!txt) return;
+    Audio2.click();
+    SIM.familyTalk(S, m.id, null, txt);
+    renderChat();
+    const log = document.getElementById('chat-log');
+    if (log) log.scrollTop = log.scrollHeight;
+  };
+  document.getElementById('chat-send').onclick = send;
+  document.getElementById('chat-free').onkeydown = e => { if (e.key === 'Enter') send(); };
+  const log = document.getElementById('chat-log');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
 // ================== اکشن‌های پنل ==================
 function bindPanelActions() {
   document.querySelectorAll('#panel-body [data-act]').forEach(b => {
@@ -818,6 +916,7 @@ function doAction(act, b) {
       if (a) { SIM.disbandArmy(S, a); if (UI.selArmy === a.id) UI.selArmy = null; }
       break;
     }
+    case 'talk': { showChat(+b.dataset.id); return; }
   }
   renderPanel();
   refreshTopbar();
@@ -907,7 +1006,7 @@ function showEvent() {
   const m = document.getElementById('event-modal');
   m.style.display = 'flex';
   const box = document.getElementById('event-box');
-  box.innerHTML = `<div class="ev-ic">${e.icon}</div>
+  box.innerHTML = `${e.img ? `<img class="ev-img" src="${e.img}" alt="">` : `<div class="ev-ic">${e.icon}</div>`}
     <div class="ev-title">${esc(e.title)}</div>
     <div class="ev-text">${esc(e.text)}</div>
     <div class="ev-opts"></div>`;

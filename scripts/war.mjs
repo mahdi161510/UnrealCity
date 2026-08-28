@@ -29,7 +29,7 @@ for (const p of S.map.provs) if (p.owner === foeId && p.adj.some(q => S.map.prov
 if (!border) { console.log('⚠️ مرز مشترک نداریم'); process.exit(1); }
 
 console.log('اعلام جنگ به', F.name, 'برای', border.name);
-SIM.declareWar(S, 0, foeId, border.id);
+S.phase = 'ruling'; S.prologue = { step: 10, traits: {}, nextWk: 1e9 }; SIM.declareWar(S, 0, foeId, border.id);
 console.log('جنگ‌ها:', S.wars.map(w => ({ a: w.a, d: w.d, goal: w.goal })));
 
 // فرمان حمله

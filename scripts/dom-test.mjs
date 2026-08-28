@@ -144,6 +144,8 @@ step('پنل مأموریت‌ها', () => { UIx.openPanel('missions'); });
 step('مکانیز انتخابات (رویداد دوره‌ای)', () => {
   S.nations[0].laws.gov = 'constit';
   S.nations[0].electionCd = 1;
+  S.phase = 'ruling'; S.prologue.step = 10; // دوران شاهزادی را رد می‌کنیم
+  S.pendingEvent = null; S.eventCd = 99; S._famCd = 99; // جلوگیری از تداخل رویدادها
   SIM.tick(S);
   if (!S.pendingEvent || S.pendingEvent.id !== 'election') throw new Error('انتخابات فعال نشد');
   UIx.onTick(); // نمایش مودال رویداد (معادل حلقه اصلی بازی)

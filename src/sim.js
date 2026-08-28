@@ -1,11 +1,13 @@
 // ---------- شبیه‌سازی هفتگی: اقتصاد، جمعیت، سیاست، جنگ، رویدادها، AI ----------
-import { GOODS, BUILDINGS, NEEDS, POP_CLASSES, TECHS, LAWS, GROUPS, TAX_LEVELS, TERRAIN, EVENTS, NATION_DEFS, MISSIONS, ELECTION_EVENT } from './data.js';
+import { GOODS, BUILDINGS, NEEDS, POP_CLASSES, TECHS, LAWS, GROUPS, TAX_LEVELS, TERRAIN, EVENTS, NATION_DEFS, MISSIONS, ELECTION_EVENT, ERAS, ERA_WAGES, eraOfWeek, PERSONALITIES, PROLOGUE, FAMILY_PORTRAITS, SON_NAMES, DAUGHTER_NAMES, GEN_NAMES, DIALOGUES, REL_REACTIONS, TALK_KEYWORDS } from './data.js';
 import { clamp, lerp, mulberry32, pick } from './utils.js';
 import { addLog } from './state.js';
 import { findPath } from './mapgen.js';
 
-const PS = 0.30;      // مقیاس قیمت↔پول
+const PS = 0.26;      // مقیاس قیمت↔پول (حاشیه سود باریک‌تر؛ اقتصاد سخت‌تر)
 const WAGE = 9.0;     // دستمزد هفتگی به‌ازای هر ۱۰۰۰ نفر × ضریب طبقه
+// ضریب دستمزد بر اساس عصر و سواد (رشد تاریخی سطح زندگی → اقتصاد سخت‌تر در طول زمان)
+export function wageMult(S, n) { return (ERA_WAGES[S.era || 0] || 1) * (1 + (n?.literacy || 12) * 0.0015); }
 export const REBEL = -2;
 
 const hashNoise = (seedA, w) => { const r = mulberry32((seedA * 2654435761 ^ w * 97) >>> 0); return r(); };
@@ -37,10 +39,11 @@ export function nationJobs(state, prov) {
   return jobs;
 }
 export function techMods(state, n) {
-  const m = { urbanOut: 0, mineOut: 0, farmOut: 0, toolOut: 0, allOut: 0, taxMult: 0, atk: 0, def: 0, recruit: 0, speed: 0, innov: 0, growth: 0, calm: 0, prestige: 0, portInc: 0, approval: 0, apprWorkers: 0, lawSpeed: 0, solAll: 0 };
-  for (const t of n.tech) { const tm = TECHS[t].mods; for (const k in tm) if (k in m) m[k] += tm[k]; }
+  const m = { urbanOut: 0, mineOut: 0, farmOut: 0, toolOut: 0, allOut: 0, taxMult: 0, atk: 0, def: 0, recruit: 0, speed: 0, innov: 0, growth: 0, calm: 0, prestige: 0, portInc: 0, approval: 0, apprWorkers: 0, lawSpeed: 0, solAll: 0, dig: 0, press: 0, litTarget: 0 };
+  for (const t of n.tech) { const tm = TECHS[t].mods; for (const k in tm) m[k] = (m[k] || 0) + tm[k]; }
   const lawMods = lawModsOf(n);
-  for (const k in lawMods.mods || {}) { if (k in m) m[k] += lawMods.mods[k]; }
+  for (const k in lawMods.mods || {}) m[k] = (m[k] || 0) + lawMods.mods[k];
+  if (n.persMods) for (const k in n.persMods) m[k] = (m[k] || 0) + n.persMods[k]; // گرایش شخصی فرمانروا
   return m;
 }
 export function lawModsOf(n) {
@@ -131,8 +134,10 @@ export function tick(state) {
         if (happy('industrialists') && bd.urban) outMult *= 1.05;
         if (happy('landowners') && (k === 'farm' || k === 'ranch')) outMult *= 1.05;
         if (n.boom > 0) outMult *= 1.08;
+        else if (n.boom < 0) outMult *= Math.max(0.78, 1 + n.boom * 0.014); // رکود موقت
         if (n.strike > 0 && bd.urban) outMult *= 0.65;
         if (p.bld.railway > 0 && bd.prod && Object.keys(bd.prod).length) outMult *= 1 + Math.min(0.05 * p.bld.railway, 0.25); // زیرساخت ریلی
+        if (p.bld.power > 0 && bd.urban && bd.prod && Object.keys(bd.prod).length) outMult *= 1.13; // برق شهری
         // کمبود نهاده
         let inFill = 1;
         for (const g in bd.cons) { const f = S.goods[g].fill ?? 1; if (f < inFill) inFill = f; }
@@ -144,7 +149,7 @@ export function tick(state) {
         for (const g in bd.cons) { const q = bd.cons[g] * lvl * r; S.goods[g].d += q; material += q * S.goods[g].price * PS; }
         if (bd.income) revenue += bd.income * lvl * r * (1 + tm.portInc);
         let wages = 0;
-        for (const c in bd.jobs) wages += (bd.jobs[c] * lvl * r / 1000) * POP_CLASSES[c].wage * WAGE;
+        for (const c in bd.jobs) wages += (bd.jobs[c] * lvl * r / 1000) * POP_CLASSES[c].wage * WAGE * wageMult(S, n);
         p.incomeClass[k] = { wages, revenue };
         wageBill += wages;
         const profit = revenue - material - wages;
@@ -156,7 +161,7 @@ export function tick(state) {
       const classInc = {};
       for (const c in POP_CLASSES) {
         const empN = emp[c] || 0, tot = p.pops[c] || 0;
-        const w = POP_CLASSES[c].wage * WAGE / 1000;
+        const w = POP_CLASSES[c].wage * WAGE * wageMult(S, n) / 1000;
         classInc[c] = empN * w + (tot - empN) * w * 0.3; // بیکاران کوشش معیشت
       }
       // سود به مالکان
@@ -201,7 +206,7 @@ export function tick(state) {
       const targetU = clamp(
         8 + taxU * 90 + (lm.mods.unrest || 0) * 80 + p.unempShare * 55 + Math.max(0, 15 - p.sol) * 2.2
         + groupU * 100 + p.hunger * 160 - (tm.calm + (happy('clergy') ? 0.08 : 0) + (lm.mods.unrest < 0 ? -lm.mods.unrest : 0)) * 40
-        + (atWarAny(S, n.id) ? 4 : 0), 2, 100);
+        + (atWarAny(S, n.id) ? 4 : 0) + Math.max(0, (n.warExh || 0) - 25) * 0.14, 2, 100);
       p.unrest = clamp(lerp(p.unrest, targetU, 0.07), 0, 100);
       p.devast = Math.max(0, p.devast - 0.01);
     }
@@ -240,24 +245,33 @@ export function tick(state) {
     const tm = techMods(S, n), lm = lawModsOf(n);
     const L = ledgers[n.id];
     const taxMult = TAX_LEVELS[n.taxLvl].mult * lm.mods.taxMult * (1 + tm.taxMult);
-    L.taxIncome = (n._wageBill * 0.24 + Math.max(0, n._profitPool) * 0.20) * taxMult;
+    // کارایی مالیات‌گیری به سواد کارگزاران بستگی دارد (فساد و ناکارآمدی دوره‌ی ابتدایی)
+    const effTax = 0.60 + (n.literacy || 12) / 100 * 0.38;
+    L.taxIncome = (n._wageBill * 0.13 + Math.max(0, n._profitPool) * 0.10) * taxMult * effTax;
     let tradeBonus = 0;
     for (const o in n.pacts) if (n.pacts[o] === 'trade') tradeBonus += (S.nations[o]?.alive ? 40 : 0);
     L.tariffs = tradeBonus;
     L.govWages = state_provincesCount(S, n.id) * 2.2 + nationPop(S, n.id) / 42000;
-    L.armyUpkeep = n.battalions * 3.2 * (S.goods.arms.fill < 0.8 ? 1.4 : 1);
+    // نگهداری ساختمان‌ها و تأسیسات عمومی (هرچه بزرگ‌تر شوی، گران‌تر می‌شود)
+    let lvlTotal = 0, uniTotal = 0;
+    for (const p of S.map.provs) if (p.owner === n.id && p.controller === n.id) {
+      for (const k in p.bld) lvlTotal += p.bld[k];
+      uniTotal += p.bld.university || 0;
+    }
+    L.upkeep = lvlTotal * 1.35 + uniTotal * 6;
+    L.armyUpkeep = n.battalions * 3.2 * (S.goods.arms.fill < 0.8 ? 1.4 : 1) * (atWarAny(S, n.id) ? 1.3 : 1);
     let cons = 0;
     for (const p of S.map.provs) {
       if (p.owner !== n.id) continue;
       for (const q of p.queue.slice(0, 2)) cons += BUILDINGS[q.key].cost / BUILDINGS[q.key].weeks;
     }
     L.construction = cons;
-    L.balance = L.taxIncome + L.tariffs - L.govWages - L.armyUpkeep - L.construction;
+    L.balance = L.taxIncome + L.tariffs - L.govWages - L.armyUpkeep - L.construction - (L.upkeep || 0);
     n.treasury += L.balance;
     n.ledger = L;
 
-    if (n.treasury < -4000) {
-      n.treasury = -1200;
+    if (n.treasury < -2600) {
+      n.treasury = -900;
       n.prestige = Math.max(0, n.prestige - 8);
       addLog(S, '💸', `${n.name} ورشکست شد!`);
       for (const p of S.map.provs) if (p.owner === n.id) p.unrest = Math.min(100, p.unrest + 15);
@@ -342,6 +356,7 @@ export function tick(state) {
       n.groups[g].clout = lerp(n.groups[g].clout || 0, shares[g] * 100, 0.25);
       let target = (lm.appr[g] || 0) + (TAX_LEVELS[n.taxLvl].appr * (g === 'workers' || g === 'landowners' ? 1 : 0.3))
         + (atWarAny(S, n.id) ? GROUPS[g].onWar : 0) + (tm.approval || 0) + (g === 'workers' ? (tm.apprWorkers || 0) : 0)
+        + (tm.press ? 1.4 : 0)
         + (n.groups[g].apprBonus || 0);
       n.groups[g].appr = clamp(lerp(n.groups[g].appr, clamp(target, -20, 20), 0.10), -20, 20);
       if (n.groups[g].apprBonus) n.groups[g].apprBonus *= 0.995;
@@ -389,7 +404,7 @@ export function tick(state) {
       let unis = 0, myProvs = 0;
       for (const p of S.map.provs) if (p.owner === n.id) { myProvs++; if (p.controller === n.id) unis += p.bld.university || 0; }
       const tmL = techMods(S, n);
-      const targetLit = clamp(10 + (unis / Math.max(myProvs, 1)) * 7 + (n.tech.includes('literacy') ? 12 : 0) + (n.tech.includes('suffrage') ? 6 : 0) + tmL.innov * 0, 6, 92);
+      const targetLit = clamp(10 + (unis / Math.max(myProvs, 1)) * 7 + (n.tech.includes('literacy') ? 12 : 0) + (n.tech.includes('suffrage') ? 6 : 0) + (tmL.litTarget || 0), 6, 95);
       n.literacy = clamp((n.literacy || 12) + clamp(targetLit - (n.literacy || 12), -1, 1) * 0.012, 4, 95);
     }
     if (!n.res.key) continue;
@@ -427,11 +442,15 @@ export function tick(state) {
       }
     }
   }
-  // تولیدمثل گردان‌ها در صلح
+  // تولیدمثل گردان‌ها در صلح + بازگشت تدریجی خستگی جنگ
   for (const n of S.nations) {
     if (!n.alive) continue;
     const cap = battalionCap(S, n);
-    if (!atWarAny(S, n.id) && n.battalions < cap) n.battalions = Math.min(cap, n.battalions + cap * 0.02);
+    if (!atWarAny(S, n.id)) {
+      n.warExh = Math.max(0, (n.warExh || 0) - 0.35);
+      const tire = (n.warExh || 0) > 35 ? 0.5 : 1; // ملت خسته کُندتر مسلح می‌شود
+      if (n.battalions < cap) n.battalions = Math.min(cap, n.battalions + cap * 0.02 * tire);
+    }
   }
 
   // ---------- ۸) جنگ ----------
@@ -461,15 +480,27 @@ export function tick(state) {
   S.stats.weeks++;
   if (n_boomTick(S)) { /* noop */ }
 
-  // رویدادهای تصادفی
+  // رویدادهای تصادفی (با ضدتکرار و وزن‌دهی به رویدادهای نادیده)
   S.eventCd--;
-  for (const n of S.nations) { if (n.boom > 0) n.boom--; if (n.strike > 0) n.strike--; }
+  for (const n of S.nations) { if (n.boom > 0) n.boom--; else if (n.boom < 0) n.boom++; if (n.strike > 0) n.strike--; }
+  if (!S.evCd) S.evCd = {};
+  if (!S.evSeen) S.evSeen = {};
+  for (const id in S.evCd) if (S.evCd[id] > 0) S.evCd[id]--;
   if (S.eventCd <= 0 && !S.pendingEvent) {
-    S.eventCd = 14 + Math.floor(Math.random() * 16);
+    S.eventCd = 12 + Math.floor(Math.random() * 14);
     const n = S.nations[S.playerId];
-    const eligible = EVENTS.filter(e => !e.cond || e.cond(S));
+    const eligible = EVENTS.filter(e =>
+      (!e.cond || e.cond(S)) &&
+      !(S.evCd[e.id] > 0) &&
+      (S.evSeen[e.id] || 0) < 3);
     if (eligible.length && n.alive) {
-      const e = pick(Math.random, eligible);
+      // وزن رویدادهای تازه بیشتر است
+      let tot = 0; const ws = eligible.map(e => { const w = (e.w || 5) * ((S.evSeen[e.id] || 0) === 0 ? 1.7 : 0.5); tot += w; return w; });
+      let r = Math.random() * tot, ei = 0;
+      while (ei < ws.length - 1 && r > ws[ei]) { r -= ws[ei]; ei++; }
+      const e = eligible[ei];
+      S.evCd[e.id] = 24 + Math.floor(Math.random() * 22); // مدتی دوباره نیاید
+      S.evSeen[e.id] = (S.evSeen[e.id] || 0) + 1;
       S.pendingEvent = e;
       S.pausedBeforeEvent = S.paused;
       S.paused = true;
@@ -478,6 +509,60 @@ export function tick(state) {
 
   // پیشنهادهای دیپلماتیک برای بازیکن
   expireOffers(state);
+
+  // ---------- ۱۰.۲۵) عصرها، زمان‌بندی‌ها، دوران شاهزادی و خانواده ----------
+  const newEra = eraOfWeek(S.week);
+  if (newEra !== (S.era || 0)) {
+    S.era = newEra;
+    addLog(S, '🏭', `عصر تازه‌ای فرارسید: «${ERAS[newEra].name}». فناوری‌ها و فرصت‌های نو گشایش یافتند؛ دستمزدها نیز افزایش می‌یابد.`);
+    pushAlert(S, '🏭', `آغاز عصر «${ERAS[newEra].name}»`);
+  }
+  // اتفاق‌های زمان‌بندی‌شده (جنگ اولتیماتوم و…)
+  if (S.scheduled && S.scheduled.length) {
+    const due = S.scheduled.filter(ev => S.week >= ev.wk);
+    S.scheduled = S.scheduled.filter(ev => S.week < ev.wk);
+    for (const ev of due) {
+      if (ev.kind === 'dow_strong_aggr') {
+        const n = S.nations[S.playerId];
+        const foe = S.nations.find(m => m.alive && m.id !== n.id && m.pers === 'aggressive' && m.battalions > n.battalions && (n.rel[m.id] ?? 0) < -10);
+        if (foe && !atWar(S, foe.id, n.id)) {
+          const goal = S.map.provs.find(p => p.owner === n.id && p.adj.some(q => S.map.provs[q].owner === foe.id));
+          declareWar(S, foe.id, n.id, goal ? goal.id : null);
+          pushAlert(S, '🔥', `${foe.name} تهدیدش را عملی کرد و به شما اعلام جنگ داد!`);
+        }
+      } else if (ev.kind === 'betrayal') {
+        // طغیان مدعی تاج (برادر)
+        const bro = familyByRole(S, 'brother');
+        if (bro && !bro.jailed) {
+          const n2 = S.nations[S.playerId];
+          const own = S.map.provs.filter(p => p.owner === n2.id);
+          const p = own[Math.floor(Math.random() * own.length)];
+          if (p) {
+            S.armies.push({ id: S.nextArmyId++, n: REBEL, home: p.id, prov: p.id, size: 4.5, org: 75, mor: 80, path: [], status: 'idle', rebel: true, prog: 0, sackCd: 10 });
+            p.controller = REBEL; p.occ = 0; p.unrest = Math.min(100, p.unrest + 25);
+            bro.fled = true; bro.alive = false;
+            addLog(S, '🔥', `${bro.name} وانمود‌کرده و با سواران طرفدار، استان ${p.name} را به قیام کشانده است!`);
+            pushAlert(S, '🔥', 'مدعی تاج شورشید! برادرت در رأس شورشیان است.');
+          }
+        }
+      }
+    }
+  }
+  // زنجیره‌ی روایی دوران شاهزادی
+  if (S.phase === 'prologue' && !S.pendingEvent && !S.gameOver) {
+    const pr = S.prologue;
+    // رویداد بعدی داستان‌گویی تنها وقتی تزریق شود که این بازه واقعاً گذشته باشد؛
+    // رویدادهای تصادفی نباید برنامه‌ی داستان را بپیچانند (nextWk از applyEventChoice تنظیم می‌شود)
+    if (pr.step < PROLOGUE.length && S.week >= pr.nextWk) {
+      const ev = PROLOGUE[pr.step];
+      pr.step++;
+      S.pendingEvent = ev;
+      S.pausedBeforeEvent = S.paused;
+      S.paused = true;
+    }
+  }
+  // دینامیک خانواده‌ی سلطنتی (هر ۴ هفته یک‌بار سنگین‌تر)
+  stepFamily(S);
 
   // ---------- ۱۰.۵) انتخابات دوره‌ای + مأموریت‌ها ----------
   const pnx = S.nations[S.playerId];
@@ -541,13 +626,40 @@ export function orderArmy(S, army, target) {
   army.prog = 0;
   return true;
 }
+// هیئت رزم واقع‌گرایانه: ژنرال‌ها، سنگر، تدارکات و فرسایش
+function ensureGen(S, a) {
+  if (a.n === REBEL || a.gen) return;
+  // جانشین‌گزینی فهرست نام‌ها در تکرار طولانی
+  a.gen = { name: GEN_NAMES[a.id % GEN_NAMES.length], skill: 0.85 + ((a.id * 7919) % 40) / 100 };
+  if (a.dig === undefined) a.dig = 0;
+}
+const FRONTAGE = { plains: 10, desert: 9, forest: 7, wetland: 6, hills: 6, mountain: 4 };
+function effSize(a, terr) {
+  const f = FRONTAGE[terr] || 8;
+  return a.size <= f ? a.size : f + (a.size - f) * 0.28; // پهنای جبهه محدود است
+}
 function simArmies(S) {
   for (const a of S.armies) {
     if (a.status === 'battle') continue;
+    ensureGen(S, a);
+    const p = S.map.provs[a.prov];
+    const inOwn = a.n >= 0 && (p.owner === a.n || p.controller === a.n);
     if (a.n !== REBEL) {
-      a.org = Math.min(100, a.org + 2.5);
-      a.mor = Math.min(100, a.mor + 2.5);
-    } else { a.size = Math.min(6, a.size + 0.08); } // شورشیان با سقف رشد می‌کنند
+      if (inOwn) {
+        a.org = Math.min(100, a.org + 2.5);
+        a.mor = Math.min(100, a.mor + 2.5);
+        // سنگرگیری در زمین خودی (نه در حرکت)
+        if (a.status !== 'move') { const tm = techMods(S, S.nations[a.n]); const cap = 8 + (tm.dig || 0); a.dig = Math.min(cap, (a.dig || 0) + 0.55); }
+      } else {
+        // فرسایش در زمین بی‌گذر: انسجام می‌افتد و بیماری/گریخت آغاز می‌شود
+        a.org = Math.max(5, a.org - 0.9);
+        a.mor = Math.max(10, a.mor - 0.35);
+        const harsh = p.terrain === 'mountain' || p.terrain === 'desert' ? 1.8 : 1;
+        const fillA = S.goods.arms.fill ?? 1;
+        a.size = Math.max(0.35, a.size - 0.006 * harsh * (fillA < 0.55 ? 2.2 : 1));
+        a.dig = 0;
+      }
+    } else { a.size = Math.min(6, a.size + 0.08); }
     if (a.status === 'move' && a.path && a.path.length > 1) {
       const n = a.n;
       const next = a.path[1];
@@ -560,8 +672,8 @@ function simArmies(S) {
         a.prog = 0;
         a.prov = next;
         a.path.shift();
+        a.dig = 0; // سنگر با حرکت از دست می‌رود
         if (a.path.length < 2) { a.status = 'idle'; a.path = []; }
-        // ورود به استان دشمن؟ نبرد در simBattles دیده می‌شود
       }
     }
   }
@@ -600,21 +712,29 @@ function simBattles(S) {
     bt.t++;
     const p = S.map.provs[bt.prov];
     const terr = TERRAIN[p.terrain];
+    ensureGen(S, atk); ensureGen(S, def);
     const modA = atk.n >= 0 ? techMods(S, S.nations[atk.n]) : { atk: -0.15, def: -0.15, calm: 0 };
     const modD = def.n >= 0 ? techMods(S, S.nations[def.n]) : { atk: -0.15, def: -0.15 };
     const hapA = atk.n >= 0 && (S.nations[atk.n].groups.military?.appr ?? 0) >= 10 ? 1.05 : 1;
     const hapD = def.n >= 0 && (S.nations[def.n].groups.military?.appr ?? 0) >= 10 ? 1.05 : 1;
     const fillA = atk.n >= 0 ? (S.goods.arms.fill ?? 1) : 1;
     const fillD = def.n >= 0 ? (S.goods.arms.fill ?? 1) : 1;
+    const genA = atk.gen ? atk.gen.skill : 1, genD = def.gen ? def.gen.skill : 1;
+    const digD = 1 + Math.min((def.dig || 0), 25) / 100; // سنگر دفاعی
     const rnd1 = 0.75 + Math.random() * 0.5, rnd2 = 0.75 + Math.random() * 0.5;
-    const pA = atk.size * (1 + (modA.atk || 0)) * (atk.org / 100) * (0.6 + 0.4 * fillA) * hapA * rnd1;
-    const pD = def.size * (1 + (modD.def || 0)) * terr.def * (def.org / 100) * (0.6 + 0.4 * fillD) * hapD * rnd2;
+    const capA = effSize(atk, p.terrain), capD = effSize(def, p.terrain);
+    const pA = capA * (1 + (modA.atk || 0)) * genA * (atk.org / 100) * (0.6 + 0.4 * fillA) * hapA * rnd1;
+    const pD = capD * (1 + (modD.def || 0)) * genD * digD * terr.def * (def.org / 100) * (0.6 + 0.4 * fillD) * hapD * rnd2;
     const k = 0.055;
-    atk.size = Math.max(0, atk.size - pD * k * (0.8 + Math.random() * 0.4));
-    def.size = Math.max(0, def.size - pA * k * (0.8 + Math.random() * 0.4));
+    const lA = pD * k * (0.8 + Math.random() * 0.4), lD = pA * k * (0.8 + Math.random() * 0.4);
+    atk.size = Math.max(0, atk.size - lA);
+    def.size = Math.max(0, def.size - lD);
     atk.org = Math.max(0, atk.org - (5 + pD / Math.max(pA, 1) * 8));
     def.org = Math.max(0, def.org - (5 + pA / Math.max(pD, 1) * 8));
     atk.mor = Math.max(0, atk.mor - 4); def.mor = Math.max(0, def.mor - 4);
+    // خستگی جنگ از تلفات 나 انباشته می‌شود
+    if (atk.n >= 0) S.nations[atk.n].warExh = Math.min(100, (S.nations[atk.n].warExh || 0) + lA * 1.7);
+    if (def.n >= 0) S.nations[def.n].warExh = Math.min(100, (S.nations[def.n].warExh || 0) + lD * 1.7);
     S.fx.push({ type: 'boom', x: p.cx, y: p.cy, t: 1, life: 1 });
     // کاهش جمعیت سرباز
     if (Math.random() < 0.2 && atk.n >= 0) drainSoldiers(S, atk.n, 220 * Math.random());
@@ -629,6 +749,7 @@ function simBattles(S) {
       loser.status = 'idle';
       winner.status = 'idle';
       winner.mor = Math.min(100, winner.mor + 10);
+      loser.dig = 0;
       // عقب‌نشینی
       if (loser.n >= 0) {
         const homeAdj = p.adj.find(q => S.map.provs[q].owner === loser.n) ?? p.adj[0];
@@ -643,7 +764,8 @@ function simBattles(S) {
         war.score += atkWin ? 9 : -9;
         war.score = clamp(war.score, -100, 100);
         const wn = S.nations[winner.n], ln = loser.n >= 0 ? S.nations[loser.n] : { name: 'شورشیان' };
-        addLog(S, '⚔️', `نبرد ${p.name}: ${wn.name} پیروز شد.`);
+        const gW = winner.gen ? ` (${winner.gen.name})` : '';
+        addLog(S, atkWin ? '⚔️' : '🛡️', `نبرد ${p.name}: ${wn.name}${gW} پیروز شد؛ تلفات سنگین ${atkWin ? ln.name : wn.name}.`);
         if (winner.n === S.playerId || (loser.n === S.playerId)) pushAlert(S, atkWin ? '⚔️' : '🛡️', `نبرد ${p.name} به پایان رسید.`);
       } else {
         addLog(S, '⚔️', `در ${p.name} نبردی درگرفت؛ شورش ${winner.n >= 0 ? 'سرکوب شد' : 'پیروز ماند'}.`);
@@ -665,7 +787,9 @@ function simOccupation(S) {
       (a.n === REBEL ? false : atWar(S, a.n, p.owner)));
     if (p.controller >= 0 && hostiles.length && p.controller === p.owner) {
       const force = hostiles.reduce((a, x) => a + x.size, 0);
-      p.occ = (p.occ || 0) + clamp(force * 4, 1, 16);
+      // استحکام دفاعی با پادگان و راه‌آهن اشغال را دشوارتر می‌کند
+      const fort = 1 + (p.bld.barracks || 0) * 0.28 + (p.bld.railway || 0) * 0.12;
+      p.occ = (p.occ || 0) + clamp(force * 4 / fort, 1, 16);
       if (p.occ >= 100) {
         p.controller = hostiles[0].n;
         p.occ = 0; p.unrest = Math.min(100, p.unrest + 30);
@@ -715,7 +839,9 @@ function simWars(S) {
   for (const w of S.wars) {
     const A = S.nations[w.a], D = S.nations[w.d];
     w.weeks = (w.weeks || 0) + 1;
-    // خستگی جنگ
+    // خستگی جنگ هر دو طرف بالا می‌رود
+    A.warExh = Math.min(100, (A.warExh || 0) + 0.13);
+    D.warExh = Math.min(100, (D.warExh || 0) + 0.13);
     if (w.weeks > 52) w.score = clamp(w.score * 0.995, -100, 100);
     // پیوستن متحدان دفاعی
     if (w.weeks === 1) {
@@ -732,8 +858,10 @@ function simWars(S) {
     if (w.goal !== null && w.goal !== undefined && S.map.provs[w.goal].controller === w.a) w.goalHold = (w.goalHold || 0) + 1;
     else w.goalHold = 0;
     if (w.goalHold >= 26 && canEnforce(S, w)) { endWar(S, w, 'enforce'); continue; }
-    if (!A.player && scoreAD <= -45) { endWar(S, w, 'white'); continue; }
-    if (!D.player && scoreAD >= 55 && canEnforce(S, w)) { endWar(S, w, 'enforce'); continue; }
+    // خستگی جنگ AI را به پای میز می‌کشاند
+    const tireA = Math.max(0, (A.warExh || 0) - 28), tireD = Math.max(0, (D.warExh || 0) - 28);
+    if (!A.player && (scoreAD <= -45 + tireA * 0.9 || (tireA > 45 && w.weeks > 40))) { endWar(S, w, 'white'); continue; }
+    if (!D.player && (scoreAD >= 55 - tireD * 0.5 || (tireD > 50 && scoreAD > 12 && w.weeks > 40)) && canEnforce(S, w)) { endWar(S, w, 'enforce'); continue; }
     if (w.weeks > 104 && Math.abs(w.score) < 15 && !A.player && !D.player && Math.random() < 0.05) { endWar(S, w, 'white'); continue; }
     // پیشنهاد صلح AI به بازیکن
     if (!A.player && scoreAD <= -35 && !w._peaceAsked && D.player) { w._peaceAsked = true; pushDipOffer(S, A.id, 'peace', w.id); }
@@ -999,6 +1127,7 @@ export function startResearch(S, n, key) {
   if (n.tech.includes(key)) return false;
   const t = TECHS[key];
   if (t.prereq && !t.prereq.every(x => n.tech.includes(x))) return false;
+  if ((t.era ?? 0) > eraOfWeek(S.week)) return false; // قفل عصری
   if (n.res.key === key) { n.res = { key: null, pts: 0 }; return true; }
   n.res = { key, pts: n.res.key === key ? n.res.pts : 0 };
   return true;
@@ -1063,6 +1192,7 @@ export function breakPact(S, a, b) {
 export function declareWar(S, a, d, goal) {
   const A = S.nations[a], D = S.nations[d];
   if (atWar(S, a, d)) return false;
+  if (S.phase === 'prologue' && a === S.playerId) { pushAlert(S, '👑', 'هنوز به تخت ننشسته‌اید؛ شورای دربار اجازه‌ی جنگ نمی‌دهد.'); return false; }
   const w = { id: S.nextWarId++, a, d, goal, score: 0, weeks: 0, allies: [] };
   S.wars.push(w);
   A.wars.push(w.id); D.wars.push(w.id);
@@ -1151,21 +1281,76 @@ export function disbandArmy(S, army) {
   army.size = 0;
 }
 export function applyEventChoice(S, ev, optIdx) {
-  const fx = ev.opts[optIdx].fx;
+  const opt = ev.opts[optIdx];
+  const fx = opt.fx || {};
   const n = S.nations[S.playerId];
+  // گرایش‌های دوران شاهزادی
+  if (opt.trait && S.prologue) { S.prologue.traits[opt.trait] = (S.prologue.traits[opt.trait] || 0) + 1; }
   if (fx.money) n.treasury += fx.money;
+  if (fx.moneyMult) n.treasury = Math.round(n.treasury * (1 + fx.moneyMult));
+  if (fx.devastProv) {
+    const own = S.map.provs.filter(p => p.owner === n.id);
+    for (let i = 0; i < fx.devastProv && own.length; i++) {
+      const p = own[Math.floor(Math.random() * own.length)];
+      p.devast = Math.min(10, p.devast + 2);
+      p.unrest = clamp(p.unrest + 10, 0, 100);
+      S.fx.push({ type: 'boom', x: p.cx, y: p.cy, t: 1, life: 1 });
+    }
+  }
+  if (fx.bldLoss) {
+    const cands = [];
+    for (const p of S.map.provs) if (p.owner === n.id) for (const k of fx.bldLoss) if ((p.bld[k] || 0) > 0) cands.push([p, k]);
+    if (cands.length) {
+      const [p, k] = cands[Math.floor(Math.random() * cands.length)];
+      p.bld[k]--;
+      addLog(S, '🏚️', `یک سطح «${BUILDINGS[k].name}» در استان ${p.name} از دست رفت.`);
+    }
+  }
+  if (fx.familyRel) familyRelAdjust(S, fx.familyRel.who, fx.familyRel.d);
+  if (fx.familyRelAll) for (const m of S.family || []) if (m.alive) m.rel = clamp(m.rel + fx.familyRelAll, 0, 100);
+  if (fx.ultim) { S.scheduled.push({ wk: S.week + 6 + Math.floor(Math.random() * 5), kind: 'dow_strong_aggr' }); addLog(S, '⚠️', 'گزارش‌ها حاکی از تجهیز سپاه همسایه است…'); }
+  if (fx.coronation) coronation(S, n);
+  if (fx.familyAct) {
+    const act = fx.familyAct;
+    const bro = familyByRole(S, 'brother'), sis = familyByRole(S, 'sister'), spo = familyByRole(S, 'spouse');
+    if (act === 'plotGrant') { if (bro) bro.rel = clamp(bro.rel + 25, 0, 100); addLog(S, '🤝', 'برادر بزرگ با اعطای لقب درباری پایبند شد.'); }
+    else if (act === 'plotRefuse') {
+      if (bro) bro.rel = clamp(bro.rel - 20, 0, 100);
+      if (bro && bro.rel < 18) { S.scheduled.push({ wk: S.week + 10 + Math.floor(Math.random() * 10), kind: 'betrayal' }); addLog(S, '🕯️', 'شایعات تاج‌خواهی در گوشه‌های دربار می‌پیچد…'); }
+    }
+    else if (act === 'plotJail') { if (bro) { bro.jailed = true; bro.rel = clamp(bro.rel - 30, 0, 100); } addLog(S, '⛓️', 'برادر بزرگ در حصر سلطنتی قرار گرفت.'); }
+    else if (act === 'sisYes' && sis) {
+      const f = S.nations[sis._wedTarget ?? -1];
+      if (f && f.alive) { n.rel[f.id] = clamp((n.rel[f.id] || 0) + 35, -100, 100); f.rel[n.id] = clamp((f.rel[n.id] || 0) + 35, -100, 100); addLog(S, '💒', `پیمان خونی با ${f.name}؛ عروسی سلطنتی برگزار شد.`); }
+      sis.wed = true; familyRelAdjust(S, 'sister', 6);
+    }
+    else if (act === 'birthSweet') {
+      const role = Math.random() < 0.55 ? 'son' : 'daughter';
+      const nm = pick(Math.random, role === 'son' ? SON_NAMES : DAUGHTER_NAMES);
+      const child = addChild(S, role, nm);
+      if (spo) spo.rel = clamp(spo.rel + 8, 0, 100);
+      addLog(S, '🍼', `فرزند تازه‌ی خاندان، ${child.name}، چشم به جهان گشود!`);
+      for (const g in n.groups) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + 1.5;
+    }
+    else if (act === 'vizYes') familyRelAdjust(S, 'vizier', 5);
+    else if (act === 'motherYes') familyRelAdjust(S, 'mother', 6);
+  }
   if (fx.prestige) n.prestige += fx.prestige;
   if (fx.solAll) { for (const p of S.map.provs) if (p.owner === n.id) p.sol = clamp(p.sol + fx.solAll, 2, 30); }
   if (fx.unrestAll) { for (const p of S.map.provs) if (p.owner === n.id) p.unrest = clamp(p.unrest + fx.unrestAll, 0, 100); }
   if (fx.approval) for (const g in fx.approval) { if (n.groups[g]) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + fx.approval[g]; }
   if (fx.approveAll) for (const g in n.groups) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + fx.approveAll;
   if (fx.price) for (const g in fx.price) S.goods[g].price = clamp(S.goods[g].price * fx.price[g], GOODS[g].base * 0.28, GOODS[g].base * 5.5);
-  if (fx.research) n.res.pts += fx.research;
+  if (fx.research) n.res.pts = Math.max(0, n.res.pts + fx.research);
   if (fx.relAll) for (const m of S.nations) if (m.id !== n.id && m.alive) { n.rel[m.id] = clamp(n.rel[m.id] + fx.relAll, -100, 100); m.rel[n.id] = clamp(m.rel[n.id] + fx.relAll, -100, 100); }
   if (fx.popLoss) { for (const p of S.map.provs) if (p.owner === n.id) for (const c in p.pops) p.pops[c] *= (1 - fx.popLoss); }
   if (fx.boom) n.boom = fx.boom;
   if (fx.strike) n.strike = fx.strike;
   addLog(S, ev.icon, `رویداد «${ev.title}»: ${ev.opts[optIdx].label}`);
+  // داستان‌گویی: فاصله‌ی ۵ هفته‌ای بعد از «انتخاب» تنظیم شود تا از رویداد اتفاقی تداخل نپرَد
+  if (S.phase === 'prologue' && S.prologue && ev.id && ev.id.length && (ev.id.startsWith('pr') || PROLOGUE.includes(ev))) {
+    S.prologue.nextWk = S.week + 5;
+  }
   S.pendingEvent = null;
   S.paused = S.pausedBeforeEvent ?? false;
 }
@@ -1174,6 +1359,137 @@ export function applyEventChoice(S, ev, optIdx) {
 function aiFlavorEvent(S, n) { /* سبک‌وزن؛ فعلاً غیرفعال */ }
 
 export function aiWeeklyMaintenance(S) { /* رزرو */ }
+
+// ================== خانواده‌ی سلطنتی ==================
+export function familyByRole(S, role) { return (S.family || []).find(m => m.role === role && m.alive); }
+function familyRelAdjust(S, who, d) {
+  let m = (S.family || []).find(x => x.role === who && x.alive);
+  if (!m && who === 'spouse') {
+    m = { id: S.nextFamId++, role: 'spouse', name: 'شهبانو ' + pick(Math.random, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.spouse, rel: 34, age: 19, alive: true, traits: ['وفادار', 'هنردوست'], talkCd: 0, hist: [] };
+    S.family.push(m);
+    addLog(S, '💍', 'ازدواج سلطنتی برگزار شد و شهبانو وارد دربار شد.');
+  }
+  if (!m) return;
+  m.rel = clamp(m.rel + d, 0, 100);
+}
+function addChild(S, role, name) {
+  const m = { id: S.nextFamId++, role, name: (role === 'son' ? 'شاهزاده ' : 'شاهدخت ') + name, avatar: role === 'son' ? FAMILY_PORTRAITS.son : FAMILY_PORTRAITS.daughter, rel: 88, age: 0, alive: true, traits: pick(Math.random, [['کنجکاو'], ['سرافراز'], ['هنرمند'], ['ورزنده'], ['کتاب‌خوان']]), talkCd: 0, hist: [] };
+  S.family.push(m);
+  return m;
+}
+function coronation(S, n) {
+  S.phase = 'ruling';
+  S._crownedWk = S.week;
+  const tr = S.prologue?.traits || {};
+  const entries = Object.entries(tr).sort((a, b) => b[1] - a[1]);
+  const t = entries.length ? entries[0][0] : 'populist';
+  n.personality = t;
+  n.persMods = { ...PERSONALITIES[t].mods };
+  for (const g in n.groups) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + 3;
+  const fa = familyByRole(S, 'father');
+  if (fa) fa.alive = false;
+  addLog(S, '👑', `دوران سلطنت فرمانروای تازه‌ی ${n.name} آغاز شد. چهره‌ی دربار: «${PERSONALITIES[t].icon} ${PERSONALITIES[t].name}» — ${PERSONALITIES[t].desc}.`);
+  pushAlert(S, '👑', `سلطنت شما آغاز شد! سبک حکومت: ${PERSONALITIES[t].name} (${PERSONALITIES[t].desc})`);
+}
+
+// رویدادهای خانوادگی دوره‌ای
+function stepFamily(S) {
+  if (!S.family) return;
+  for (const m of S.family) {
+    if (!m.alive) continue;
+    m.age += 1 / 52;
+    if (m.talkCd > 0) m.talkCd--;
+    const base = { father: 70, mother: 78, brother: 46, sister: 60, spouse: 62, vizier: 66, son: 86, daughter: 86 }[m.role] ?? 60;
+    m.rel = clamp(m.rel + clamp(base - m.rel, -1, 1) * 0.02, 0, 100);
+  }
+  if (S.phase !== 'ruling' || S.pendingEvent || S.gameOver) return;
+  S._famCd = (S._famCd ?? 18) - 1;
+  if (S._famCd > 0) return;
+  S._famCd = 15 + Math.floor(Math.random() * 12);
+  const n = S.nations[S.playerId];
+  const cands = [];
+  const bro = familyByRole(S, 'brother'), sis = familyByRole(S, 'sister'), spo = familyByRole(S, 'spouse'), mo = familyByRole(S, 'mother'), viz = familyByRole(S, 'vizier');
+  const kids = S.family.filter(m => (m.role === 'son' || m.role === 'daughter') && m.alive);
+  if (bro && bro.rel < 34 && !bro.jailed) {
+    cands.push({ w: 6, ev: { id: 'bro_plot', icon: '🗡️', img: bro.avatar, title: 'سایه‌ی تاج‌خواهی',
+      text: `مخفی‌گزاران خبر آورده‌اند: برادرت ${bro.name} در مجالس خصوصی از «سلطنت شایسته‌تر» سخن می‌گوید و افسران مرزی را می‌شمارد. رابطه‌ی شما دو نفر خواب‌بین است…`,
+      opts: [
+        { label: 'لقب و عهدۀ دربار بده', hint: 'خزانه −£۱۵۰۰؛ رابطه ــبسیار بهتر، خطر فروکش', fx: { money: -1500, familyAct: 'plotGrant' } },
+        { label: 'بی‌اعتنایی سلطنتی', hint: 'رابطه ــکمتر؛ احتمال طغیان بعدی…', fx: { familyAct: 'plotRefuse' } },
+        { label: 'زندان سلطنتی!', hint: 'توقیف برادر؛ اشراف ناراضی، اعتبار −۲', fx: { familyAct: 'plotJail', approval: { landowners: -4 }, prestige: -2 } },
+      ] } });
+  }
+  if (sis && !sis.wed) {
+    cands.push({ w: 4, ev: { id: 'sis_wed', icon: '💌', img: sis.avatar, title: 'خواستگاری سلطنتی',
+      text: (() => { const foes = S.nations.filter(m2 => m2.alive && !m2.player); const f = pick(Math.random, foes); sis._wedTarget = f.id; return `سفیر ${f.name} خواستگار دست ${sis.name} است. پیوندِ خونی می‌تواند دو ملت را برای سال‌ها پیوند دهد؛ اما دل خواهرت هم برایت مهم است.`; })(),
+      opts: [
+        { label: 'ازدواج را بپذیر', hint: 'روابط با آن ملت +۳۵؛ خواهر رابطه +۶', fx: { familyAct: 'sisYes' } },
+        { label: 'نامزد را رد کن', hint: 'خواهر خل دلخور (−۸)', fx: { familyAct: 'sisNo', familyRel: { who: 'sister', d: -8 } } },
+      ] } });
+  }
+  if (spo && spo.rel > 55 && kids.length < 4 && (S.week - (S._crownedWk || 0)) > 100) {
+    cands.push({ w: 3, ev: { id: 'birth', icon: '🍼', img: spo.avatar, title: 'شادی در قصر',
+      text: 'پزشک دربار خبر شادی داد: شهبانو باردار است و دربار به شکوه آماده‌ی جشن می‌شود!',
+      opts: [
+        { label: 'جشن بزرگ گرفتن', hint: 'خزانه −£۹۰۰؛ رابطه با اوضاع خانواده بهتر', fx: { money: -900, familyAct: 'birthSweet' } },
+        { label: 'به‌موضوع ک بعد رسیده می‌کنیم', hint: 'هیچ (شادی خصوصی)', fx: { familyAct: 'birthSweet' } },
+      ] } });
+  }
+  if (viz && Math.random() < 0.5) {
+    cands.push({ w: 3, ev: { id: 'viz_scheme', icon: '📜', img: viz.avatar, title: 'رویِ میز وزیر',
+      text: `${viz.name} طرحی اصلاحی بر صورت‌های خزانه گذاشته است: «با کمی هزینه‌ی اولیه، امتیاز پژوهش‌ها دوچندان به ثمر می‌نشیند.»`,
+      opts: [
+        { label: 'تأمین بودجه‌ی طرح', hint: 'خزانه −£۸۰۰؛ امتیاز پژوهش +۲۰', fx: { money: -800, research: 20, familyAct: 'vizYes' } },
+        { label: 'شیوه‌ی کهنه بهتر است', hint: 'وزیر خل دلخور (−۶)', fx: { familyAct: 'vizNo', familyRel: { who: 'vizier', d: -6 } } },
+      ] } });
+  }
+  if (mo && Math.random() < 0.5) {
+    cands.push({ w: 3, ev: { id: 'mother_charity', icon: '🕊️', img: mo.avatar, title: 'خیرات مادر ملکه',
+      text: `${mo.name} می‌خواهد با نام سلطنت، شفاخانه‌ای برای فقرا بنا کند. درباری‌ها می‌گویند «شکوه پادشاهی به چنین کارهاست».`,
+      opts: [
+        { label: 'بده و برکتش نصیب مملکت', hint: 'خزانه −£۷۰۰؛ روحانیون و کارگران خرسند', fx: { money: -700, approval: { clergy: 5, workers: 3 }, familyAct: 'motherYes' } },
+        { label: 'خزانه اول مملکت است', hint: 'مادر خل دلخور (−۵)', fx: { familyAct: 'motherNo', familyRel: { who: 'mother', d: -5 } } },
+      ] } });
+  }
+  if (!cands.length) return;
+  let tot = 0; for (const c of cands) tot += c.w;
+  let r = Math.random() * tot, pickEv = cands[0].ev;
+  for (const c of cands) { if (r < c.w) { pickEv = c.ev; break; } r -= c.w; }
+  S.pendingEvent = pickEv;
+  S.pausedBeforeEvent = S.paused;
+  S.paused = true;
+}
+
+// گفت‌وگوی آزاد با عضوی از خانواده (به صلاحدید بازیکن)
+export function familyTalk(S, mId, topic, freeText) {
+  const m = (S.family || []).find(x => x.id === mId && x.alive);
+  if (!m) return null;
+  if (freeText) {
+    let mapped = 'chat';
+    for (const [kw, t] of TALK_KEYWORDS) if (freeText.includes(kw)) { mapped = t; break; }
+    topic = mapped;
+  }
+  const lines = DIALOGUES[m.role]?.[topic] || ['«…»'];
+  const line = lines[Math.floor(Math.random() * lines.length)];
+  const cold = m.rel < 32, warm = m.rel >= 68;
+  const react = cold ? pick(Math.random, REL_REACTIONS.cold) : warm ? pick(Math.random, REL_REACTIONS.warm) : '';
+  let dRel = { state: 2, family: 3, advice: 4, favor: 0, chat: 2 }[topic] ?? 2;
+  let note = '';
+  if (topic === 'favor') {
+    if (m.rel >= 58) {
+      const gift = m.role === 'vizier' ? 500 : m.role === 'mother' ? 700 : 900;
+      S.nations[S.playerId].treasury += gift;
+      dRel = 8; note = `یاری رساند: +£${gift}`;
+    } else { dRel = -3; note = 'فعلاً حاضر به یاری نیست.'; }
+  }
+  if (m.talkCd > 0) { dRel = -1; note = (note ? note + ' — ' : '') + 'کمی خسته است؛ بعداً بگذرید…'; }
+  else m.talkCd = 4;
+  m.rel = clamp(m.rel + dRel, 0, 100);
+  const n = S.nations[S.playerId];
+  m.hist.push({ free: freeText || null, topic, a: line, dRel, note, wk: S.week });
+  if (m.hist.length > 12) m.hist.shift();
+  return { line, react, dRel, note, name: m.name };
+}
 export function currentWarScore(S, w, nid) {
   const side = warSide(S, w, nid);
   return side === 'a' ? w.score : side === 'd' ? -w.score : 0;

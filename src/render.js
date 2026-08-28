@@ -74,12 +74,28 @@ export class MapRenderer {
       d[(i) * 4 + 2] = clamp((col[2] + g) * (1 + shade), 0, 255);
       d[(i) * 4 + 3] = 255;
     }
+    // پاس نرم‌کننده: ترکیب ملایم هر پیکسل با میانگین همسایه‌ها تا حالت «پیکسلی» از بین برود
+    {
+      const src = new Uint8ClampedArray(d);
+      for (let y = 1; y < GH - 1; y++) for (let x = 1; x < GW - 1; x++) {
+        const i = y * GW + x;
+        for (let ch = 0; ch < 3; ch++) {
+          const v = src[i * 4 + ch] * 0.72 + (src[(i - 1) * 4 + ch] + src[(i + 1) * 4 + ch] + src[(i - GW) * 4 + ch] + src[(i + GW) * 4 + ch]) * 0.07;
+          d[i * 4 + ch] = v;
+        }
+      }
+    }
     c.putImageData(img, 0, 0);
-    // بزرگنمایی نرم روی بوم تزئینی
+    // بزرگنمایی نرم روی بوم تزئینی (دو مرحله‌ای با کیفیت بالا)
     this.decoCv.width = W; this.decoCv.height = H;
     const dc = this.decoCv.getContext('2d');
-    dc.imageSmoothingEnabled = true;
-    dc.drawImage(this.terCv, 0, 0, W, H);
+    if (!this.terMid) { this.terMid = document.createElement('canvas'); }
+    this.terMid.width = GW * 2; this.terMid.height = GH * 2;
+    const mc = this.terMid.getContext('2d');
+    mc.imageSmoothingEnabled = true; mc.imageSmoothingQuality = 'high';
+    mc.drawImage(this.terCv, 0, 0, GW * 2, GH * 2);
+    dc.imageSmoothingEnabled = true; dc.imageSmoothingQuality = 'high';
+    dc.drawImage(this.terMid, 0, 0, W, H);
     // برجسته‌سازی کوهستان با سایه‌روشن
     const rng = mulberry32(state.seed ^ 12345);
     for (const p of state.map.provs) {
@@ -276,6 +292,7 @@ export class MapRenderer {
     ctx.translate(this.vw / 2 / this.cam.z - this.cam.x, this.vh / 2 / this.cam.z - this.cam.y);
 
     ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(this.decoCv, 0, 0);
     if (this.mapMode !== 'terrain') {
       ctx.globalAlpha = 0.86;
@@ -786,3 +803,4 @@ function prodValue(state, p) {
   return v;
 }
 export { prodValue };
+

@@ -377,6 +377,41 @@ button { font-family: inherit; cursor: pointer; }
 .endrow b { flex: 1; }
 .endrow.me { border: 1px solid var(--gold2); background: rgba(217,177,102,.12); }
 
+/* دربار سلطنتی و خانواده */
+.prologue-banner { background: linear-gradient(135deg, rgba(217,177,102,.12), rgba(120,84,26,.14)); border: 1px solid var(--gold2); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 12.5px; line-height: 1.9; }
+.bar.prolit { height: 7px; margin: 6px 0 4px; }
+.fam-card { display: flex; gap: 10px; align-items: center; padding: 9px 10px; margin-bottom: 8px; background: rgba(255,240,200,.04); border: 1px solid rgba(80,66,40,.45); border-radius: 13px; }
+.fam-card.me { border-color: var(--gold2); background: rgba(217,177,102,.10); }
+.fam-card.dead { opacity: .55; filter: grayscale(.6); }
+.fam-avatar { width: 56px; height: 56px; object-fit: cover; border-radius: 12px; border: 2px solid rgba(120,90,40,.7); box-shadow: 0 2px 6px rgba(0,0,0,.35); flex-shrink: 0; }
+.fam-avatar.big { width: 64px; height: 64px; }
+.fam-mid { flex: 1; min-width: 0; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+.fam-traits { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 9.5px; padding: 2px 7px; border-radius: 9px; background: rgba(217,177,102,.14); border: 1px solid rgba(120,90,40,.5); }
+.chip.bad { background: rgba(180,60,50,.18); border-color: rgba(180,60,50,.5); }
+.chip.lock { background: rgba(90,110,140,.2); border-color: rgba(90,110,140,.5); }
+.fam-rel { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; width: 92px; flex-shrink: 0; }
+.fam-rel .bar { width: 100%; }
+.ev-img { width: 100%; max-height: 190px; object-fit: cover; border-radius: 12px; margin-bottom: 9px; border: 1px solid rgba(120,90,40,.6); }
+
+/* چت */
+.chat-box { width: min(460px, 94vw); }
+.chat-head { display: flex; gap: 11px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 9px; }
+.chat-head-mid { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.chatrel { height: 6px; }
+.chat-log { height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 2px; }
+.chat-row { display: flex; }
+.chat-row.q { justify-content: flex-start; }
+.chat-row.a { justify-content: flex-end; }
+.chat-bubble { max-width: 82%; padding: 7px 11px; border-radius: 13px; font-size: 12.5px; line-height: 1.8; }
+.chat-row.q .chat-bubble { background: rgba(217,177,102,.16); border: 1px solid rgba(120,90,40,.55); border-radius: 3px 13px 13px 13px; }
+.chat-row.a .chat-bubble { background: rgba(90,110,140,.16); border: 1px solid rgba(80,100,130,.55); border-radius: 13px 3px 13px 13px; }
+.chat-topics { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; justify-content: center; }
+.chat-input { display: flex; gap: 6px; margin-top: 8px; }
+.chat-input input { flex: 1; background: rgba(20,16,10,.6); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 8px 11px; font-family: inherit; font-size: 12.5px; }
+.chat-input input:focus { outline: none; border-color: var(--gold2); }
+.stat#tb-era { background: rgba(143,188,106,.12); border-color: rgba(143,188,106,.4); }
+
 /* مینی‌مپ و مدهای نقشه */
 #bottom-left { position: absolute; left: 10px; bottom: 10px; z-index: 16; }
 #minimap { border: 2px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); cursor: crosshair; background: #0c1420; }

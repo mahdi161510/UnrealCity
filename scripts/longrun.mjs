@@ -1,34 +1,35 @@
-// اجرای طولانی v2: ۸۰۰ هفته با فعالیت بازیکن (راه‌آهن، مأموریت، انتخابات)
-import { newGame, saveGame } from '../src/state.js';
+// تست طولانی ۸۰۰ هفته: ثبات اقتصاد، رَیت، مراسم، ماموریت‌ها
+import { newGame } from '../src/state.js';
 import * as SIM from '../src/sim.js';
+import { ranking } from '../src/sim.js';
 
-const seed = Number(process.argv[2] || Date.now() % 1000000);
-const S = newGame(seed, 0);
-const P = S.nations[0];
-let events = 0, offers = 0, elections = 0, wars = 0, missions = 0;
-const WEEKS = 800;
-for (let w = 0; w < WEEKS && !S.gameOver; w++) {
-  if (S.pendingEvent) { if (S.pendingEvent.id === 'election') elections++; events++; SIM.applyEventChoice(S, S.pendingEvent, 0); }
-  while ((S.dipOffers || []).length) { offers++; SIM.respondOffer(S, S.dipOffers[0].id, Math.random() > 0.5); }
-  if (S.bankrupt) SIM.rescueNation(S, S.nations[S.playerId]);
-  const before = P.missionsDone.length;
-  SIM.tick(S);
-  missions += P.missionsDone.length - before;
-  if (P.treasury > 300) {
-    const own = S.map.provs.filter(p => p.owner === 0);
-    const p = own[Math.floor(Math.random() * own.length)];
-    const opts = ['railway', 'tools', 'steel_mill', 'woodworks', 'port', 'university'];
-    const k = opts[Math.floor(Math.random() * opts.length)];
-    if (p.bld[k] !== undefined && SIM.canBuild(S, p, k, 0).ok) SIM.startBuild(S, p, k, 0);
-    if (P.battalions >= 2 && !S.armies.some(a => a.n === 0) && Math.random() > 0.5) SIM.createArmy(S, 0, P.capital);
+const SEEDS = [424242, 111];
+for (const seed of SEEDS) {
+  const S = newGame(seed, 0);
+  S.nations[0].treasury = 50000;
+  let events = 0, wars = 0, battles = 0, crowns = 0, prologueEvs = 0, famEvs = 0;
+  const traces = [];
+  for (let w = 0; w < 800; w++) {
+    SIM.tick(S);
+    if (S.pendingEvent) {
+      events++;
+      if (S.pendingEvent.id.startsWith('pr')) prologueEvs++;
+      if (['bro_plot', 'sis_wed', 'birth', 'viz_scheme', 'mother_charity', 'spouse_idle' , 'bro_duel'].includes(S.pendingEvent.id)) famEvs++;
+      SIM.applyEventChoice(S, S.pendingEvent, S.pendingEvent.opts.length - 1);
+    }
+    if (S.phase === 'ruling' && S.prologue.step < 10) { crowns++; S.prologue.step = 10; }
+    if (w % 200 === 199) {
+      const me = S.nations[S.playerId];
+      const myProvs = S.map.provs.filter(p => p.owner === S.playerId);
+      const solAvg = myProvs.length ? myProvs.reduce((a, p) => a + (p.sol || 0), 0) / myProvs.length : 0;
+      traces.push({ week: S.week, year: 1836 + ~~(S.week / 48), era: S.era, money: Math.round(me.treasury), sol: +solAvg.toFixed(1), provs: myProvs.length, wars: S.wars.length, techs: (me.techs || []).length });
+    }
   }
-  if (w === 400) { P.laws.gov = 'constit'; P.electionCd = 3; }
-  if (S.wars.length) wars = Math.max(wars, S.wars.length);
+  const me = S.nations[S.playerId];
+  const alive = S.nations.filter(n => n.provs ? n.provs.length : true).length;
+  console.log(`seed=${seed} | هفته=${S.week} (${1836 + ~~(S.week / 48)}م) | رویداد=${events} (آغازنامه ${prologueEvs}, خانواده ${famEvs}) | فاز=${S.phase} | زنده‌های خانواده=${S.family.filter(m=>m.alive).length}`);
+  console.log('  رده‌بندی:', ranking(S).map(n => `${n.name}:${n.prestige | 0}`).slice(0, 4).join(' | '));
+  console.log(`  نبرد دریافت‌شده در لاگ: ${S.log.filter(l => (l.text || '').includes('نبرد')).length} | جنگ‌های فعال: ${S.wars.length} | ملت‌های زنده: ${alive}/${S.nations.length}`);
+  console.log('  ردپا:', JSON.stringify(traces));
 }
-const res = Object.fromEntries(Object.entries(S.goods).map(([k, g]) => [k, g.price.toFixed(1)]));
-console.log('seed=' + seed, 'هفته:', S.week, '| قیمت‌ها:', res);
-console.log('خزانه', (P.treasury||0).toFixed(0), '| GDP', (P.gdp||0).toFixed(0), '| SoL', SIM.avgSol(S, 0).toFixed(1), '| سواد', (P.literacy || 0).toFixed(0) + '٪', '| رویداد', events, '| انتخابات', elections, '| پیشنهادها', offers, '| مأموریت', missions, '| حداکثر جنگ همزمان', wars);
-console.log('مأموریت‌های انجام‌شده:', P.missionsDone.join(',') || '—', '| الحاق:', P.annexed);
-const rk = SIM.ranking(S).slice(0, 10);
-console.log('صدر جدول:', rk.map(r => (r.player ? '⚑' : '') + r.name + ':' + Math.round(r.prestige)).join(' | '));
-console.log('بازیکن زنده؟', P.alive, '|', 'زنده‌ها:', S.nations.filter(n => n.alive).length, '/', S.nations.length);
+console.log('✅ longrun v3');

@@ -1,9 +1,9 @@
 // ---------- ساخت بازی جدید + ذخیره/بارگذاری ----------
 import { genMap } from './mapgen.js';
-import { NATION_DEFS, GOODS, BUILDINGS } from './data.js';
+import { NATION_DEFS, GOODS, BUILDINGS, FAMILY_PORTRAITS, DAUGHTER_NAMES, SON_NAMES } from './data.js';
 import { mulberry32, clamp, pick } from './utils.js';
 
-export const SAVE_KEY = 'unrealcity1836_save_v1';
+export const SAVE_KEY = 'unrealcity1836_save_v3';
 
 export function newGame(seed, playerIdx) {
   const map = genMap(seed);
@@ -31,6 +31,8 @@ export function newGame(seed, playerIdx) {
     literacy: 11 + Math.floor(rng() * 8) + (i % 4 === 1 ? 6 : 0),
     missionsDone: [], annexed: 0,
     electionCd: 208 + Math.floor(rng() * 60),
+    warExh: 0,
+    personality: null, persMods: {},
     ai: { nextThink: Math.floor(rng() * 8) },
     boom: 0, strike: 0,
   }));
@@ -86,8 +88,17 @@ export function newGame(seed, playerIdx) {
     n.battalions = Math.max(1, Math.round(caps * (n.pers === 'aggressive' ? 1 : 0.6)));
   }
 
+  // ---- خانواده‌ی سلطنتی بازیکن ----
+  const fam = [
+    { id: 1, role: 'father', name: nations[playerIdx].ruler, avatar: FAMILY_PORTRAITS.father, rel: 72, age: 58, alive: true, traits: ['خویشتن‌دار', 'جهان‌دیده'], talkCd: 0, hist: [] },
+    { id: 2, role: 'mother', name: 'ملکه ' + pick(rng, ['جهان‌بانو', 'ماه‌دخت', 'تاج‌الملوک', 'شیرین‌بانو']), avatar: FAMILY_PORTRAITS.mother, rel: 80, age: 52, alive: true, traits: ['مهربان', 'تدبیرگر'], talkCd: 0, hist: [] },
+    { id: 3, role: 'brother', name: 'شاهزاده ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
+    { id: 4, role: 'sister', name: 'شاهزده ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
+    { id: 5, role: 'vizier', name: 'وزیر ' + pick(rng, ['میرزا کاظم', 'میرزا حسن', 'میرزا تقی', 'میرزا ابوالقاسم']), avatar: FAMILY_PORTRAITS.vizier, rel: 68, age: 55, alive: true, traits: ['با تجربه', 'وفادار'], talkCd: 0, hist: [] },
+  ];
+
   const state = {
-    v: 1, seed, week: 0, tickN: 0,
+    v: 3, seed, week: 0, tickN: 0,
     speed: 2, paused: true,
     playerId: playerIdx,
     map, nations,
@@ -99,6 +110,14 @@ export function newGame(seed, playerIdx) {
     log: [],
     pendingEvent: null,
     eventCd: 20,
+    evCd: {},          // خنثی‌سازی ضدتکرار رویدادها
+    evSeen: {},        // تعداد تکرار هر رویداد
+    scheduled: [],     // اتفاق‌های زمان‌بندی‌شده (جنگ اولتیماتوم و…)
+    family: fam,
+    nextFamId: 6,
+    phase: 'prologue', // prologue → ruling
+    prologue: { step: 0, traits: {}, nextWk: 0 },
+    era: 0,
     stats: { weeks: 0, gdp: {}, sol: {} },
     victory: false, defeat: false, gameOver: false,
   };
@@ -127,16 +146,20 @@ export function saveGame(state) {
       battalions: n.battalions, prestige: n.prestige, gdp: n.gdp, alive: n.alive,
       boom: n.boom, strike: n.strike, capital: n.capital, revoltCd: n.revoltCd, dowCd: n.dowCd,
       literacy: n.literacy, missionsDone: n.missionsDone, annexed: n.annexed, electionCd: n.electionCd,
+      warExh: n.warExh, personality: n.personality, persMods: n.persMods,
     })),
     provs: state.map.provs.map(p => ({
       owner: p.owner, controller: p.controller, pops: p.pops, bld: p.bld, queue: p.queue,
       unrest: p.unrest, sol: p.sol, devast: p.devast,
     })),
     goods: Object.fromEntries(Object.entries(state.goods).map(([k, g]) => [k, { price: g.price, hist: g.hist.slice(-80) }])),
-    armies: state.armies.map(a => ({ id: a.id, n: a.n, prov: a.prov, home: a.home, size: a.size, org: a.org, mor: a.mor, path: a.path, status: a.status, rebel: a.rebel, prog: a.prog })),
+    armies: state.armies.map(a => ({ id: a.id, n: a.n, prov: a.prov, home: a.home, size: a.size, org: a.org, mor: a.mor, path: a.path, status: a.status, rebel: a.rebel, prog: a.prog, gen: a.gen, dig: a.dig })),
     nextArmyId: state.nextArmyId,
     wars: state.wars, nextWarId: state.nextWarId,
     log: state.log.slice(-60), stats: state.stats, victory: state.victory,
+    evCd: state.evCd, evSeen: state.evSeen, scheduled: state.scheduled,
+    family: state.family, nextFamId: state.nextFamId,
+    phase: state.phase, prologue: state.prologue, era: state.era,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(dyn));
 }
@@ -160,7 +183,14 @@ export function loadGame() {
     if (!state.stats.gdp[n.id]) state.stats.gdp[n.id] = [];
     if (!state.stats.sol[n.id]) state.stats.sol[n.id] = [];
     if (!n.missionsDone) n.missionsDone = [];
+    if (!n.persMods) n.persMods = {};
   }
+  if (dyn.evCd) state.evCd = dyn.evCd;
+  if (dyn.evSeen) state.evSeen = dyn.evSeen;
+  if (dyn.scheduled) state.scheduled = dyn.scheduled;
+  if (dyn.family) { state.family = dyn.family; state.nextFamId = dyn.nextFamId || state.nextFamId; }
+  if (dyn.phase) state.phase = dyn.phase;
+  if (dyn.prologue) state.prologue = dyn.prologue;
   state.battles = []; state.fx = []; state.pendingEvent = null; state.eventCd = 8;
   return state;
 }
