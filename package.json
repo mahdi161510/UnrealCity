@@ -1,0 +1,13 @@
+{
+  "name": "empire1836",
+  "private": true,
+  "type": "module",
+  "description": "Grand strategy web game inspired by Victoria 3 (Persian UI)",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node scripts/smoke.mjs && node scripts/war.mjs && node scripts/dom-test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "*"
+  }
+}

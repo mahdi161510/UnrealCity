@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>امپراتوری ۱۸۳۶ — استراتژی بزرگ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
+</head>
+<body>
+
+<!-- ===== منوی آغاز ===== -->
+<div id="menusc">
+  <div class="menu-art"></div>
+  <div class="menu-inner">
+    <div class="menu-top">
+      <div class="menu-crown">👑</div>
+      <h1 class="menu-title">امپراتوری ۱۸۳۶</h1>
+      <div class="menu-sub">استراتژی بزرگ عصر بخار و امپراتوری — اقتصاد، جامعه، دیپلماسی و جنگ</div>
+    </div>
+    <div id="menu-buttons">
+      <button id="btn-new" class="mbtn primary">⚔️ بازی جدید</button>
+      <button id="btn-continue" class="mbtn">📜 ادامه بازی</button>
+      <button id="btn-how" class="mbtn ghost">❓ راهنما</button>
+    </div>
+    <div id="nation-grid"></div>
+    <div class="menu-foot">ساخته‌شده با 🖤 — الهام‌گرفته از Victoria 3</div>
+  </div>
+</div>
+
+<!-- ===== بازی ===== -->
+<div id="game" style="display:none">
+  <div id="map-wrap">
+    <canvas id="map"></canvas>
+    <div id="map-tip" style="display:none"></div>
+  </div>
+
+  <!-- نوار بالا -->
+  <header id="topbar">
+    <div class="tb-side">
+      <img id="tb-flag" class="flag" alt="">
+      <b id="tb-name"></b>
+      <button id="btn-burger" class="icon-btn" title="منو">☰</button>
+    </div>
+    <div class="tb-stats">
+      <span id="tb-money" class="stat"></span>
+      <span id="tb-gdp" class="stat" title="تولید ناخالص"></span>
+      <span id="tb-prestige" class="stat" title="اعتبار"></span>
+      <span id="tb-pop" class="stat" title="جمعیت"></span>
+      <span id="tb-innov" class="stat" title="پژوهش"></span>
+      <span id="tb-lit" class="stat" title="سواد"></span>
+      <span id="tb-era" class="stat" title="عصر کنونی"></span>
+      <span id="tb-army" class="stat" title="گردان‌های میدانی + ذخیره"></span>
+    </div>
+    <div class="tb-clock">
+      <div id="tb-date"></div>
+      <div class="speed-btns">
+        <button id="sp0" class="sp" title="مکث (Space)">⏸</button>
+        <button id="sp1" class="sp" title="سرعت ۱">▶</button>
+        <button id="sp2" class="sp on" title="سرعت ۲">▶▶</button>
+        <button id="sp3" class="sp" title="سرعت ۳">▶▶▶</button>
+        <button id="sp4" class="sp" title="سرعت ۴">⏭</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="war-banner" style="display:none"></div>
+  <div id="alert-col"></div>
+
+  <!-- داک راست -->
+  <nav id="dock">
+    <button class="dock-btn" data-panel="province" title="استان">🏘️</button>
+    <button class="dock-btn" data-panel="family" title="دربار سلطنتی — خانواده">🫅</button>
+    <button class="dock-btn" data-panel="country" title="کشور — نمای کلی">🏰</button>
+    <button class="dock-btn" data-panel="market" title="بازار">🏪</button>
+    <button class="dock-btn" data-panel="tech" title="فناوری">🎓</button>
+    <button class="dock-btn" data-panel="politics" title="سیاست و خزانه">🏛️</button>
+    <button class="dock-btn" data-panel="diplomacy" title="دیپلماسی">🤝</button>
+    <button class="dock-btn" data-panel="military" title="نظام">🪖</button>
+    <button class="dock-btn" data-panel="missions" title="مأموریت‌ها">🎯</button>
+    <button class="dock-btn" data-panel="ranking" title="رتبه‌بندی">👑</button>
+    <button class="dock-btn" data-panel="log" title="تاریخچه">📜</button>
+  </nav>
+
+  <!-- پنل -->
+  <aside id="panel-wrap" style="display:none">
+    <div id="panel-head">
+      <b id="panel-title"></b>
+      <button id="panel-close" class="icon-btn">✕</button>
+    </div>
+    <div id="panel-body"></div>
+  </aside>
+
+  <!-- پایین -->
+  <div id="bottom-left">
+    <canvas id="minimap" width="188" height="108"></canvas>
+  </div>
+  <div id="mapmodes"></div>
+  <div id="toasts"></div>
+
+  <!-- مودال‌ها -->
+  <div id="event-modal" class="modal" style="display:none"><div id="event-box" class="modal-box"></div></div>
+  <div id="chat-modal" class="modal" style="display:none"><div id="chat-box" class="modal-box chat-box"></div></div>
+  <div id="confirm-modal" class="modal" style="display:none">
+    <div class="modal-box">
+      <div id="confirm-title" class="ev-title"></div>
+      <div id="confirm-text" class="ev-text"></div>
+      <div class="row-btns center">
+        <button id="confirm-yes" class="mbtn primary smallbtn">تایید</button>
+        <button id="confirm-no" class="mbtn ghost smallbtn">انصراف</button>
+      </div>
+    </div>
+  </div>
+  <div id="help-modal" class="modal" style="display:none">
+    <div class="modal-box wide">
+      <div id="help-body"></div>
+      <div class="row-btns center"><button id="help-close" class="mbtn primary smallbtn">بستن</button></div>
+    </div>
+  </div>
+  <div id="endscreen" class="modal" style="display:none">
+    <div class="modal-box">
+      <div id="end-ic" class="ev-ic"></div>
+      <div id="end-title" class="ev-title"></div>
+      <div id="end-text" class="ev-text"></div>
+      <div class="row-btns center">
+        <button id="end-continue" class="mbtn primary smallbtn">ادامه بازی</button>
+        <button id="end-menu" class="mbtn ghost smallbtn">بازگشت به منو</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
