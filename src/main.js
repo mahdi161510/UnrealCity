@@ -21,12 +21,16 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 const hooks = {
-  startGame(nationIdx) {
-    S = newGame(Math.floor(Math.random() * 1e9), nationIdx);
+  startGame(opts) {
+    const o = typeof opts === 'number' ? { nationIdx: opts } : (opts || {});
+    S = newGame(Math.floor(Math.random() * 1e9), {
+      timelineId: o.timelineId, scenarioId: o.scenarioId, difficulty: o.difficulty, nationIdx: o.nationIdx,
+    });
     boot();
     const cap = S.map.provs[S.nations[S.playerId].capital];
     R.focusOn(cap.cx, cap.cy, 0.75);
     UIx.toast('🏛️', `فرمانروایی ${S.nations[S.playerId].name} آغاز شد — با کلیک روی استان‌ها شروع کنید`);
+    UIx.showTutorial();
   },
   continueGame() {
     S = loadGame();
@@ -143,14 +147,15 @@ function bindInput(cv, mini) {
   addEventListener('keydown', e => {
     if (!running || !S) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const noSpeed = !!(S.diffMods && S.diffMods.noSpeed);
     if (e.code === 'Space') { e.preventDefault(); setSpeed(0); }
-    else if (e.key >= '1' && e.key <= '4') setSpeed(+e.key);
+    else if (e.key >= '1' && e.key <= '4') { if (!noSpeed) setSpeed(+e.key); }
     else if (e.key === 'Escape') {
       if (UI.selArmy) { UI.selArmy = null; UIx.renderPanel(); }
       else closePanel();
     }
-    else if (e.key === '+' || e.key === '=') setSpeed(Math.min(4, S.speed + 1));
-    else if (e.key === '-') setSpeed(Math.max(1, S.speed - 1));
+    else if (e.key === '+' || e.key === '=') { if (!noSpeed) setSpeed(Math.min(4, S.speed + 1)); }
+    else if (e.key === '-') { if (!noSpeed) setSpeed(Math.max(1, S.speed - 1)); }
   });
 
   // ذخیره هنگام خروج

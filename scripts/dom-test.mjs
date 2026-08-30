@@ -50,6 +50,7 @@ const UIx = await import('../src/ui.js');
 const { MapRenderer } = await import('../src/render.js');
 const st = await import('../src/state.js');
 const SIM = await import('../src/sim.js');
+const { BUILDINGS, EVENTS } = await import('../src/data.js');
 
 function step(name, fn) {
   try { fn(); console.log('✅', name); }
@@ -62,16 +63,51 @@ step('ساخت رندرر و اتصال کانوس', () => {
   R.attach(document.getElementById('map'), document.getElementById('minimap'));
 });
 let startedWith = null;
-const menuHooksStub = { startGame(i) { startedWith = i; }, continueGame() { } };
-step('نمایش منو', () => { UIx.showMenu(menuHooksStub); document.getElementById('btn-new').click(); });
-step('کلیک روی کارت ملت → startGame صدا زده شود (رگرسیون hooks=null)', () => {
+const menuHooksStub = { startGame(o) { startedWith = o; }, continueGame() { } };
+step('نمایش منو + راه‌اندازی (خط زمانی/سختی/ملت)', () => {
+  UIx.showMenu(menuHooksStub);
   document.getElementById('btn-new').click();
-  const card = document.querySelector('#nation-grid .nation-card');
-  if (!card) throw new Error('کارت ملتی ساخته نشد');
-  card.click();
-  if (startedWith !== 0) throw new Error('startGame فراخوانی نشد');
+  if (document.getElementById('menu-setup').style.display === 'none') throw new Error('راه‌اندازی باز نشد');
+  if (document.querySelectorAll('#tl-cards .tl-card').length !== 4) throw new Error('۴ کارت خط زمانی نیست');
+  if (!document.querySelectorAll('#diff-chips .chip').length) throw new Error('درجه‌های سختی نیست');
 });
-step('رندر یک فریم روی منو (بدون state)', () => { /* skip */ });
+step('انتخاب خط زمانی واقعی (ww1) → ملت‌های آن خط', () => {
+  document.querySelector('#tl-cards .tl-card[data-tl="ww1"]').click();
+  const cards = document.querySelectorAll('#nation-grid .nation-card');
+  if (cards.length !== 10) throw new Error('۱۰ ملت ww1 در شبکه نیست (فعلاً ' + cards.length + ')');
+  cards[0].click();
+  if (!startedWith || startedWith.timelineId !== 'ww1') throw new Error('startGame با ww1 صدا زده نشد');
+  if (startedWith.difficulty !== 'normal' || startedWith.nationIdx !== 0) throw new Error('پارامترهای startGame نادرست');
+});
+step('انتخاب سناریوی قفل‌دار ویکتوریا (رستاخیز آریان)', () => {
+  UIx.showMenu(menuHooksStub);
+  document.getElementById('btn-new').click();
+  document.querySelector('#tl-cards .tl-card[data-tl="victoria"]').click();
+  if (document.getElementById('scenario-section').style.display === 'none') throw new Error('بخش سناریو نمایش داده نشد');
+  document.querySelector('#scenario-chips .chip[data-sc="persia"]').click();
+  const cards = document.querySelectorAll('#nation-grid .nation-card');
+  if (cards.length !== 1) throw new Error('سناریوی قفل‌دار باید فقط یک ملت داشته باشد');
+  if (!document.querySelector('.setup-note')) throw new Error('نکته‌ی قفل نمایش داده نشد');
+  cards[0].click();
+  if (startedWith.scenarioId !== 'persia') throw new Error('scenarioId ارسال نشد');
+  UIx.showMenu(menuHooksStub); // بازگشت
+});
+step('توتوریال کامل: قدم‌به‌قدم تا انتها', () => {
+  UIx.showTutorial();
+  const title = () => document.querySelector('#tut-body .tut-title').textContent;
+  const first = title();
+  let n = 0;
+  while (n < 30) {
+    const btn = document.getElementById('tut-next');
+    const t = title();
+    btn.click();
+    n++;
+    if (btn.textContent.includes('شروع کن')) break;
+    if (title() === t && !document.getElementById('tutorial-modal').style.display) break;
+  }
+  if (!document.getElementById('tutorial-modal').style.display) throw new Error('توتوریال بسته نشد');
+  if (!first.includes('خوش آمدید')) throw new Error('توتوریال از صفحه‌ی درست شروع نشد');
+});
 
 step('ساخت بازی جدید + initUI', () => {
   S = st.newGame(424242, 0);
@@ -96,6 +132,29 @@ step('ساخت مزرعه از دکمه', () => {
   btn.click();
   const prov = S.map.provs[UIx.UI.selProv];
   if (!prov.queue.length) throw new Error('صف ساخت خالی است');
+});
+step('باگ پول: خرید ساختمان واقعاً خزانه را کم می‌کند', () => {
+  const pn = S.nations[0];
+  pn.treasury = 100000; // مطمئن شویم دکمه قفل نیست
+  const prov = S.map.provs.find(p => p.owner === 0);
+  UIx.selectProv(prov.id);
+  const before = pn.treasury;
+  const btn = document.querySelector('#panel-body [data-act="build"][data-k="farm"]');
+  if (!btn) throw new Error('دکمه ساخت مزرعه یافت نشد');
+  btn.click();
+  const q = prov.queue[prov.queue.length - 1];
+  if (!q || q.key !== 'farm') throw new Error('ساخت مزرعه آغاز نشد');
+  const cost = BUILDINGS.farm.cost;
+  if (pn.treasury !== before - cost) throw new Error(`خزانه کم نشد: قبل=${before} بعد=${pn.treasury} هزینه=${cost}`);
+  // لغو ساخت → بازپرداخت کامل
+  const before2 = pn.treasury;
+  document.querySelector(`#panel-body [data-act="cancel"][data-i="${prov.queue.length - 1}"]`).click();
+  if (pn.treasury !== before2 + cost) throw new Error(`بازپرداخت لغو نادرست: قبل=${before2} بعد=${pn.treasury}`);
+  // خرید با پول ناکافی باید رد شود
+  pn.treasury = BUILDINGS.farm.cost - 1;
+  UIx.selectProv(prov.id);
+  const chk = SIM.canBuild(S, prov, 'farm');
+  if (chk.ok) throw new Error('خرید با پول ناکافی نباید مجاز باشد');
 });
 step('پنل بازار + اسپارک‌لاین', () => { UIx.openPanel('market'); });
 step('پنل فناوری + شروع پژوهش', () => {
@@ -161,7 +220,49 @@ step('تکمیل مأموریت به‌صورت اجباری', () => {
   if (!(pn.missionsDone || []).includes('smoke')) throw new Error('مأموریت smoke تکمیل نشد');
 });
 step('پنل تاریخچه', () => { UIx.openPanel('log'); });
-step('کلیک نقشه روی استان', () => { UIx.UI.selArmy = null; UIx.mapClick(640, 360); });
+step('رویداد با دو نسخه‌ی متن (اصلی/ساده)', () => {
+  const ev = EVENTS.find(e => e.t2);
+  if (!ev) throw new Error('رویدادی با t2 نیست');
+  S.pendingEvent = { ...ev, opts: ev.opts.slice() };
+  UIx.onTick();
+  const modal = document.getElementById('event-modal');
+  if (modal.style.display !== 'flex') throw new Error('مودال رویداد باز نشد');
+  const simpleBtn = document.querySelector('#event-box .ev-tab[data-tab="simple"]');
+  if (!simpleBtn) throw new Error('دکمه‌ی ترجمه‌ی ساده نیست');
+  const orig = document.querySelector('#event-box .ev-text').textContent;
+  simpleBtn.click();
+  const simple = document.querySelector('#event-box .ev-text').textContent;
+  if (simple === orig || !simple) throw new Error('متن ساده جایگزین نشد');
+  if (!document.querySelector('#event-box .ev-timer-bar')) throw new Error('نوار تایمر رویداد تصادفی نیست');
+  document.querySelector('#event-box .ev-opt').click();
+  if (S.pendingEvent) throw new Error('رویداد پس از انتخاب بسته نشد');
+  if (modal.style.display === 'flex') throw new Error('مودال پس از انتخاب بسته نشد');
+});
+step('بستن خودکار رویداد تصادفی (تایمر)', () => {
+  S.paused = true; S.pausedBeforeEvent = true;
+  S.pendingEvent = { ...EVENTS.find(e => e.t2), opts: [] };
+  UIx.onTick();
+  if (document.getElementById('event-modal').style.display !== 'flex') throw new Error('مودال رویداد باز نشد');
+  UIx.dismissEvent();
+  if (S.pendingEvent) throw new Error('pendingEvent پاک نشد');
+  if (document.getElementById('event-modal').style.display === 'flex') throw new Error('مودال بسته نشد');
+  if (S.paused !== true) throw new Error('حالت مکث پیش از رویداد بازگردانده نشد');
+  S.pausedBeforeEvent = undefined;
+});
+step('سختی افسانه‌ای: فقط پاز/آن‌پاز', () => {
+  S.diffMods = { ...S.diffMods, noSpeed: true };
+  UIx.refreshTopbar();
+  if (document.getElementById('sp1').style.display !== 'none') throw new Error('دکمه سرعت ۱ پنهان نشد');
+  if (document.getElementById('sp4').style.display !== 'none') throw new Error('دکمه سرعت ۴ پنهان نشد');
+  if (document.getElementById('sp0').style.display === 'none') throw new Error('دکمه پاز نباید پنهان شود');
+  UIx.setSpeed(3);
+  if (S.speed === 3) throw new Error('تغییر سرعت در افسانه‌ای نباید مجاز باشد');
+  S.paused = false;
+  UIx.setSpeed(0);
+  if (S.paused !== true) throw new Error('پاز در افسانه‌ای باید کار کند');
+  S.diffMods = { ...S.diffMods, noSpeed: false };
+  UIx.refreshTopbar();
+});
 step('هاور نقشه', () => { UIx.mapHover(500, 300); });
 step('۴۰ تیک شبیه‌سازی + رندر و رویدادها', () => {
   for (let i = 0; i < 40; i++) {
@@ -183,7 +284,14 @@ step('ذخیره و بارگذاری', () => {
   if (S2.map.provs.length !== S.map.provs.length) throw new Error('استان‌ها ناسازگار');
 });
 step('سرعت‌گذاری و مکث', () => { UIx.setSpeed(4); UIx.setSpeed(0); });
-step('منوی بازی/راهنما', () => { UIx.showHelp(true); document.getElementById('help-close').click(); });
+step('منوی بازی/راهنما + توتوریال از راهنما', () => {
+  UIx.showHelp(true);
+  document.getElementById('help-tut').click();
+  if (document.getElementById('tutorial-modal').style.display !== 'flex') throw new Error('توتوریال از راهنما باز نشد');
+  document.getElementById('tut-close').click();
+  if (document.getElementById('tutorial-modal').style.display === 'flex') throw new Error('توتوریال بسته نشد');
+  document.getElementById('help-close').click();
+});
 
 console.log('\n— نتیجه —');
 if (errors.length) { console.log('❌ خطاها:\n' + errors.join('\n---\n')); process.exit(1); }

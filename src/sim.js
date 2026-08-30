@@ -21,7 +21,7 @@ export function canBuild(state, prov, key) {
   const cap = buildingCap(prov, key);
   const inQueue = prov.queue.filter(q => q.key === key).length;
   if (prov.bld[key] + inQueue >= cap) return { ok: false, why: cap === 0 ? 'این زمین/منبع ظرفیت ندارد' : 'به حداکثر ظرفیت رسیده' };
-  if (n.treasury < bd.cost * 0.08) return { ok: false, why: 'خزانه کافی نیست' };
+  if (n.treasury < bd.cost) return { ok: false, why: 'خزانه کافی نیست — هزینه‌ی کامل هنگام شروع پرداخت می‌شود' };
   return { ok: true };
 }
 export function jobsOf(key, lvl) {
@@ -206,7 +206,8 @@ export function tick(state) {
       const targetU = clamp(
         8 + taxU * 90 + (lm.mods.unrest || 0) * 80 + p.unempShare * 55 + Math.max(0, 15 - p.sol) * 2.2
         + groupU * 100 + p.hunger * 160 - (tm.calm + (happy('clergy') ? 0.08 : 0) + (lm.mods.unrest < 0 ? -lm.mods.unrest : 0)) * 40
-        + (atWarAny(S, n.id) ? 4 : 0) + Math.max(0, (n.warExh || 0) - 25) * 0.14, 2, 100);
+        + (atWarAny(S, n.id) ? 4 : 0) + Math.max(0, (n.warExh || 0) - 25) * 0.14
+        + (S.diffMods?.unrestBias || 0), 2, 100);
       p.unrest = clamp(lerp(p.unrest, targetU, 0.07), 0, 100);
       p.devast = Math.max(0, p.devast - 0.01);
     }
@@ -234,7 +235,8 @@ export function tick(state) {
     G.fill = G.d <= 0 ? 1 : clamp(G.s / G.d, 0, 1.25);
     const base = GOODS[g].base;
     const r = G.d > 0 ? clamp((G.d - G.s) / Math.max(G.s, G.d, 1), -1, 1) : -0.5;
-    G.price = clamp(G.price * (1 + 0.07 * r), base * 0.45, base * 3.6);
+    const vol = S.diffMods?.priceVol || 1; // نوسان قیمت بر اساس درجه‌ی سختی
+    G.price = clamp(G.price * (1 + 0.07 * r * vol), base * 0.45, base * 3.6);
     G.hist.push(G.price);
     if (G.hist.length > 130) G.hist.shift();
   }
@@ -259,14 +261,15 @@ export function tick(state) {
       uniTotal += p.bld.university || 0;
     }
     L.upkeep = lvlTotal * 1.35 + uniTotal * 6;
-    L.armyUpkeep = n.battalions * 3.2 * (S.goods.arms.fill < 0.8 ? 1.4 : 1) * (atWarAny(S, n.id) ? 1.3 : 1);
+    L.armyUpkeep = n.battalions * 3.2 * (S.goods.arms.fill < 0.8 ? 1.4 : 1) * (atWarAny(S, n.id) ? 1.3 : 1) * (S.diffMods?.upkeep || 1);
+    // ساخت‌وساز هنگام شروع به‌صورت کامل پرداخت شده؛ اینجا فقط گزارش می‌شود (بدون کسر دوباره)
     let cons = 0;
     for (const p of S.map.provs) {
       if (p.owner !== n.id) continue;
       for (const q of p.queue.slice(0, 2)) cons += BUILDINGS[q.key].cost / BUILDINGS[q.key].weeks;
     }
     L.construction = cons;
-    L.balance = L.taxIncome + L.tariffs - L.govWages - L.armyUpkeep - L.construction - (L.upkeep || 0);
+    L.balance = L.taxIncome + L.tariffs - L.govWages - L.armyUpkeep - (L.upkeep || 0);
     n.treasury += L.balance;
     n.ledger = L;
 
@@ -283,7 +286,7 @@ export function tick(state) {
   for (const n of S.nations) {
     if (!n.alive) continue;
     const tm = techMods(S, n);
-    const growth = (0.00042 + Math.max(0, (n.gdp > 0 ? 1 : 1)) * 0) * (1 + tm.growth);
+    const growth = (0.00042 + Math.max(0, (n.gdp > 0 ? 1 : 1)) * 0) * (1 + tm.growth) * (S.diffMods?.popGrowth || 1);
     // جذابیت استان‌ها
     const attr = new Map();
     for (const p of S.map.provs) {
@@ -487,12 +490,14 @@ export function tick(state) {
   if (!S.evSeen) S.evSeen = {};
   for (const id in S.evCd) if (S.evCd[id] > 0) S.evCd[id]--;
   if (S.eventCd <= 0 && !S.pendingEvent) {
-    S.eventCd = 12 + Math.floor(Math.random() * 14);
+    // رویدادها کمتر ظاهر می‌شوند (و در سختی‌های بالاتر باز هم کمیاب‌تر)
+    S.eventCd = Math.max(8, Math.round((30 + Math.floor(Math.random() * 26)) / (S.diffMods?.eventFreq || 1)));
     const n = S.nations[S.playerId];
     const eligible = EVENTS.filter(e =>
       (!e.cond || e.cond(S)) &&
+      (!e.tl || e.tl === S.timelineId || (Array.isArray(e.tl) && e.tl.includes(S.timelineId))) &&
       !(S.evCd[e.id] > 0) &&
-      (S.evSeen[e.id] || 0) < 3);
+      (S.evSeen[e.id] || 0) < (e.once ? 1 : 3));
     if (eligible.length && n.alive) {
       // وزن رویدادهای تازه بیشتر است
       let tot = 0; const ws = eligible.map(e => { const w = (e.w || 5) * ((S.evSeen[e.id] || 0) === 0 ? 1.7 : 0.5); tot += w; return w; });
@@ -511,7 +516,7 @@ export function tick(state) {
   expireOffers(state);
 
   // ---------- ۱۰.۲۵) عصرها، زمان‌بندی‌ها، دوران شاهزادی و خانواده ----------
-  const newEra = eraOfWeek(S.week);
+  const newEra = eraOfWeek(S.week, S.startYear || 1836);
   if (newEra !== (S.era || 0)) {
     S.era = newEra;
     addLog(S, '🏭', `عصر تازه‌ای فرارسید: «${ERAS[newEra].name}». فناوری‌ها و فرصت‌های نو گشایش یافتند؛ دستمزدها نیز افزایش می‌یابد.`);
@@ -578,20 +583,20 @@ export function tick(state) {
     }
   }
   checkMissions(S);
-  if (!S.gameOver && S.week >= 3380) {
+  const endWk = (S.endYear - (S.startYear || 1836)) * 52;
+  if (!S.gameOver && S.week >= endWk) {
     S.gameOver = true;
     S.paused = true;
-    addLog(S, '👑', 'قرن نوزدهم به پایان رسید؛ سرشماری نهایی قدرت‌ها انجام شد.');
+    addLog(S, '👑', `سال ${S.endYear} فرا رسید؛ سرشماری نهایی قدرت‌ها انجام شد.`);
   }
 
   // ---------- ۱۱) پیروزی/شکست ----------
   const pn = S.nations[S.playerId];
   const myProvs = S.map.provs.filter(p => p.owner === pn.id).length;
   if (myProvs === 0 && !S.defeat) { S.defeat = true; addLog(S, '💀', 'سرزمین شما به‌کلی سقوط کرد.'); }
-  const { y } = { y: 1836 + S.week / 52 };
   if (S.week > 0 && S.week % 52 === 0 && !S.victory) {
     const rank = ranking(S).findIndex(r => r.id === pn.id) + 1;
-    if (rank === 1 && 1836 + S.week / 52 >= 1900) { S.victory = true; }
+    if (rank === 1 && (S.startYear || 1836) + S.week / 52 >= S.endYear) { S.victory = true; }
   }
 }
 
@@ -629,8 +634,9 @@ export function orderArmy(S, army, target) {
 // هیئت رزم واقع‌گرایانه: ژنرال‌ها، سنگر، تدارکات و فرسایش
 function ensureGen(S, a) {
   if (a.n === REBEL || a.gen) return;
-  // جانشین‌گزینی فهرست نام‌ها در تکرار طولانی
-  a.gen = { name: GEN_NAMES[a.id % GEN_NAMES.length], skill: 0.85 + ((a.id * 7919) % 40) / 100 };
+  // نام‌های متناسب با خط زمانی (۱۹۳۸/۲۰۲۶: ژنرال‌ها و فیلد مارشال‌ها)
+  const names = S.tlGenNames || GEN_NAMES;
+  a.gen = { name: names[a.id % names.length], skill: 0.85 + ((a.id * 7919) % 40) / 100 };
   if (a.dig === undefined) a.dig = 0;
 }
 const FRONTAGE = { plains: 10, desert: 9, forest: 7, wetland: 6, hills: 6, mountain: 4 };
@@ -968,8 +974,12 @@ function checkCollapse(S, loserId) {
 function thinkAI(S, n) {
   n.ai.nextThink--;
   if (n.ai.nextThink > 0) return;
-  n.ai.nextThink = 6 + Math.floor(Math.random() * 6);
+  // در سختی‌های بالاتر AI زودبه‌زود فکر می‌کند (باهوش‌تر)
+  const thinkBase = S.diffMods?.aiThink || 6;
+  n.ai.nextThink = Math.max(2, Math.round(thinkBase * (0.55 + Math.random() * 0.9)));
   const rnd = Math.random;
+  const aggr = S.diffMods?.aiAggr || 1;
+  const smart = 2.2 - thinkBase * 0.2; // ضریب هوشمندی (معمولی = ۱)
 
   // پژوهش
   if (!n.res.key) {
@@ -1004,14 +1014,19 @@ function thinkAI(S, n) {
       let placed = 0;
       for (const b of bids.slice(0, 8)) {
         const prov = myProvs.find(p => canBuild(S, p, b.k).ok && p.queue.length < 2);
-        if (prov) { prov.queue.push({ key: b.k, prog: 0 }); placed++; }
+        // AI هم هزینه‌ی کامل را هنگام شروع می‌پردازد (اقتصاد برای همه یکسان است)
+        if (prov && n.treasury >= BUILDINGS[b.k].cost) {
+          n.treasury -= BUILDINGS[b.k].cost;
+          prov.queue.push({ key: b.k, prog: 0 });
+          placed++;
+        }
         if (placed >= (n.treasury > 3000 ? 2 : 1)) break;
       }
     }
   }
 
   // قانون
-  if (!n.enact && rnd() < 0.12) {
+  if (!n.enact && rnd() < 0.12 * smart) {
     const want = n.laws.gov === 'absolut' && n.tech.includes('romantik') && rnd() < 0.4 ? { cat: 'gov', key: 'constit' }
       : n.laws.labor === 'serf' && rnd() < 0.5 ? { cat: 'labor', key: 'poor' }
       : n.laws.tax === 'poll' && rnd() < 0.5 ? { cat: 'tax', key: 'land' } : null;
@@ -1022,21 +1037,21 @@ function thinkAI(S, n) {
   const P = S.nations[S.playerId];
   if (P.alive) {
     const rel = n.rel[P.id];
-    if (rel < 0 && rnd() < 0.3 && (n.improvementCd[P.id] || 0) <= S.week) { n.rel[P.id] += 12; P.rel[n.id] += 12; n.improvementCd[P.id] = S.week + 30; }
+    if (rel < 0 && rnd() < 0.3 * smart && (n.improvementCd[P.id] || 0) <= S.week) { n.rel[P.id] += 12; P.rel[n.id] += 12; n.improvementCd[P.id] = S.week + 30; }
     if (rel > 40 && !n.pacts[P.id] && rnd() < 0.20 && n.pers === 'trader') pushDipOffer(S, n.id, 'trade');
-    if (rel > 70 && !n.pacts[P.id] && rnd() < 0.12) pushDipOffer(S, n.id, 'ally');
-    // اعلام جنگ
+    if (rel > 70 && !n.pacts[P.id] && rnd() < 0.12 * smart) pushDipOffer(S, n.id, 'ally');
+    // اعلام جنگ: سختی بالاتر = تهاجمی‌تر و بی‌پرواتر
     if (n.pers === 'aggressive' && (n.dowCd || 0) <= S.week && !n.wars.length && rel < -8 && !n.pacts[P.id]) {
       const myArm = n.battalions + armiesOf(S, n.id).reduce((a, x) => a + x.size, 0);
       const pArm = P.battalions + armiesOf(S, P.id).reduce((a, x) => a + x.size, 0) || 1;
-      if (myArm > pArm * 1.4 && rnd() < 0.32) {
+      if (myArm > pArm * (1.4 / Math.max(0.4, aggr)) && rnd() < 0.32 * aggr) {
         const borderProv = S.map.provs.find(p => p.owner === P.id && p.adj.some(q => S.map.provs[q].owner === n.id));
         if (borderProv) declareWar(S, n.id, P.id, borderProv.id);
       }
     }
   }
   // جنگ با AIِ دیگر همسایه (کمیاب)
-  if (n.pers === 'aggressive' && !n.wars.length && rnd() < 0.16) {
+  if (n.pers === 'aggressive' && !n.wars.length && rnd() < 0.16 * aggr) {
     const foe = S.nations.find(m => m.alive && m.id !== n.id && m.id !== S.playerId && n.rel[m.id] < -18 && !atWar(S, n.id, m.id) &&
       S.map.provs.some(p => p.owner === m.id && p.adj.some(q => S.map.provs[q].owner === n.id)));
     if (foe) {
@@ -1115,13 +1130,18 @@ export function setTax(S, nid, lvl) {
 export function startBuild(S, prov, key) {
   const chk = canBuild(S, prov, key);
   if (!chk.ok) return chk;
-  prov.queue.push({ key, prog: 0 });
-  // پیش‌پرداخت جزئی
-  S.nations[prov.owner].treasury -= BUILDINGS[key].cost * 0.05;
+  const n = S.nations[prov.owner];
+  // پرداخت کامل هنگام شروع (اصلاح باگ: خرید باید پول کم کند)
+  n.treasury -= BUILDINGS[key].cost;
+  prov.queue.push({ key, prog: 0, paid: BUILDINGS[key].cost });
   return { ok: true };
 }
 export function cancelBuild(S, prov, idx) {
-  if (prov.queue[idx]) prov.queue.splice(idx, 1);
+  if (prov.queue[idx]) {
+    // بازپرداخت کامل
+    S.nations[prov.owner].treasury += BUILDINGS[prov.queue[idx].key].cost;
+    prov.queue.splice(idx, 1);
+  }
 }
 export function startResearch(S, n, key) {
   if (n.tech.includes(key)) return false;
@@ -1336,6 +1356,7 @@ export function applyEventChoice(S, ev, optIdx) {
     else if (act === 'motherYes') familyRelAdjust(S, 'mother', 6);
   }
   if (fx.prestige) n.prestige += fx.prestige;
+  if (fx.army) n.battalions = Math.min(n.battalions + fx.army, battalionCap(S, n) + 6); // تصمیم نظامی: گردان تازه
   if (fx.solAll) { for (const p of S.map.provs) if (p.owner === n.id) p.sol = clamp(p.sol + fx.solAll, 2, 30); }
   if (fx.unrestAll) { for (const p of S.map.provs) if (p.owner === n.id) p.unrest = clamp(p.unrest + fx.unrestAll, 0, 100); }
   if (fx.approval) for (const g in fx.approval) { if (n.groups[g]) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + fx.approval[g]; }
@@ -1394,7 +1415,7 @@ function coronation(S, n) {
 
 // رویدادهای خانوادگی دوره‌ای
 function stepFamily(S) {
-  if (!S.family) return;
+  if (!S.family || !S.family.length) return; // خطوط زمانی واقعی خانواده‌ی سلطنتی ندارند
   for (const m of S.family) {
     if (!m.alive) continue;
     m.age += 1 / 52;
@@ -1413,6 +1434,7 @@ function stepFamily(S) {
   if (bro && bro.rel < 34 && !bro.jailed) {
     cands.push({ w: 6, ev: { id: 'bro_plot', icon: '🗡️', img: bro.avatar, title: 'سایه‌ی تاج‌خواهی',
       text: `مخفی‌گزاران خبر آورده‌اند: برادرت ${bro.name} در مجالس خصوصی از «سلطنت شایسته‌تر» سخن می‌گوید و افسران مرزی را می‌شمارد. رابطه‌ی شما دو نفر خواب‌بین است…`,
+      t2: `جاسوسای دربار خبر آوردن که برادرت ${bro.name} تو جمع‌های خصوصی می‌گه «من لایق‌ترم» و داره با افسرا حرف می‌زنه! رابطه‌تونم اصلاً خوب نیست. حالا چی کار می‌کنی؟`,
       opts: [
         { label: 'لقب و عهدۀ دربار بده', hint: 'خزانه −£۱۵۰۰؛ رابطه ــبسیار بهتر، خطر فروکش', fx: { money: -1500, familyAct: 'plotGrant' } },
         { label: 'بی‌اعتنایی سلطنتی', hint: 'رابطه ــکمتر؛ احتمال طغیان بعدی…', fx: { familyAct: 'plotRefuse' } },
@@ -1422,6 +1444,7 @@ function stepFamily(S) {
   if (sis && !sis.wed) {
     cands.push({ w: 4, ev: { id: 'sis_wed', icon: '💌', img: sis.avatar, title: 'خواستگاری سلطنتی',
       text: (() => { const foes = S.nations.filter(m2 => m2.alive && !m2.player); const f = pick(Math.random, foes); sis._wedTarget = f.id; return `سفیر ${f.name} خواستگار دست ${sis.name} است. پیوندِ خونی می‌تواند دو ملت را برای سال‌ها پیوند دهد؛ اما دل خواهرت هم برایت مهم است.`; })(),
+      t2: (() => { const foes = S.nations.filter(m2 => m2.alive && !m2.player); const f = pick(Math.random, foes); return `سفیر ${f.name} اومده خواستگاری خواهرت! با این ازدواج دو کشور سال‌ها متحد می‌شن، ولی باید ببینی دل خود خواهرت چیه. قبول می‌کنی یا نه؟`; })(),
       opts: [
         { label: 'ازدواج را بپذیر', hint: 'روابط با آن ملت +۳۵؛ خواهر رابطه +۶', fx: { familyAct: 'sisYes' } },
         { label: 'نامزد را رد کن', hint: 'خواهر خل دلخور (−۸)', fx: { familyAct: 'sisNo', familyRel: { who: 'sister', d: -8 } } },
@@ -1430,6 +1453,7 @@ function stepFamily(S) {
   if (spo && spo.rel > 55 && kids.length < 4 && (S.week - (S._crownedWk || 0)) > 100) {
     cands.push({ w: 3, ev: { id: 'birth', icon: '🍼', img: spo.avatar, title: 'شادی در قصر',
       text: 'پزشک دربار خبر شادی داد: شهبانو باردار است و دربار به شکوه آماده‌ی جشن می‌شود!',
+      t2: 'خبر خوب! شهبانو بارداره و قراره یه وارث تازه به دنیا بیاد. جشن بگیریم یا بی‌سروصدا بگذرونیمش؟',
       opts: [
         { label: 'جشن بزرگ گرفتن', hint: 'خزانه −£۹۰۰؛ رابطه با اوضاع خانواده بهتر', fx: { money: -900, familyAct: 'birthSweet' } },
         { label: 'به‌موضوع ک بعد رسیده می‌کنیم', hint: 'هیچ (شادی خصوصی)', fx: { familyAct: 'birthSweet' } },
@@ -1438,6 +1462,7 @@ function stepFamily(S) {
   if (viz && Math.random() < 0.5) {
     cands.push({ w: 3, ev: { id: 'viz_scheme', icon: '📜', img: viz.avatar, title: 'رویِ میز وزیر',
       text: `${viz.name} طرحی اصلاحی بر صورت‌های خزانه گذاشته است: «با کمی هزینه‌ی اولیه، امتیاز پژوهش‌ها دوچندان به ثمر می‌نشیند.»`,
+      t2: `${viz.name} یه طرح داره: «یه کم پول اولیه بده، تحقیق‌ها خیلی سریع‌تر پیش می‌ره.» پولشو بدی یا بگی نه؟`,
       opts: [
         { label: 'تأمین بودجه‌ی طرح', hint: 'خزانه −£۸۰۰؛ امتیاز پژوهش +۲۰', fx: { money: -800, research: 20, familyAct: 'vizYes' } },
         { label: 'شیوه‌ی کهنه بهتر است', hint: 'وزیر خل دلخور (−۶)', fx: { familyAct: 'vizNo', familyRel: { who: 'vizier', d: -6 } } },
@@ -1446,6 +1471,7 @@ function stepFamily(S) {
   if (mo && Math.random() < 0.5) {
     cands.push({ w: 3, ev: { id: 'mother_charity', icon: '🕊️', img: mo.avatar, title: 'خیرات مادر ملکه',
       text: `${mo.name} می‌خواهد با نام سلطنت، شفاخانه‌ای برای فقرا بنا کند. درباری‌ها می‌گویند «شکوه پادشاهی به چنین کارهاست».`,
+      t2: `${mo.name} می‌خواد به اسم تو یه درمانگاه برای فقرا بسازه. درباریا می‌گن این کار آبروی سلطنتو می‌بره بالا. پول می‌دی یا نه؟`,
       opts: [
         { label: 'بده و برکتش نصیب مملکت', hint: 'خزانه −£۷۰۰؛ روحانیون و کارگران خرسند', fx: { money: -700, approval: { clergy: 5, workers: 3 }, familyAct: 'motherYes' } },
         { label: 'خزانه اول مملکت است', hint: 'مادر خل دلخور (−۵)', fx: { familyAct: 'motherNo', familyRel: { who: 'mother', d: -5 } } },

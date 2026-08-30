@@ -1,6 +1,7 @@
 // ---------- رابط کاربری: منو، HUD، پنل‌ها، رویدادها ----------
 import { GOODS, BUILDINGS, TECHS, TECH_BRANCHES, LAWS, LAW_CATS, GROUPS, TAX_LEVELS, POP_CLASSES, TERRAIN, NATION_DEFS, EVENTS, MISSIONS, ERAS, PERSONALITIES, TALK_TOPICS, FAMILY_ROLES_FA } from './data.js';
 import { fd, fd1, fK, fMoney, fSign, fPct, fDate, fYearMonth, esc, el, clamp } from './utils.js';
+import { TIMELINES, DIFFICULTIES, timelineById } from './timelines.js';
 import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
 import { REBEL } from './sim.js';
@@ -41,52 +42,129 @@ export function initUI(state, renderer, h) {
 
 // ================== منوی آغاز ==================
 let menuHooks = null;
+const menuPrefs = { tl: 'victoria', scenario: 'balance', diff: 'normal' };
+try {
+  const p = JSON.parse(localStorage.getItem('uc_menu') || '{}');
+  if (p.tl && timelineById(p.tl).id === p.tl) menuPrefs.tl = p.tl;
+  if (p.diff && DIFFICULTIES.some(d => d.id === p.diff)) menuPrefs.diff = p.diff;
+  if (p.scenario) menuPrefs.scenario = p.scenario;
+} catch (e) { /* ذخیره‌ی منو در دسترس نیست */ }
+function saveMenuPrefs() { try { localStorage.setItem('uc_menu', JSON.stringify(menuPrefs)); } catch (e) { } }
+
 export function showMenu(cb) {
   if (cb) menuHooks = cb;
   const m = document.getElementById('menusc');
   m.style.display = 'flex';
   document.getElementById('game').style.display = 'none';
   document.getElementById('btn-continue').style.display = hasSave() ? '' : 'none';
-  const grid = document.getElementById('nation-grid');
-  grid.style.display = 'none';
-  grid.innerHTML = '';
-  document.getElementById('btn-new').onclick = () => {
-    Audio2.click();
-    document.getElementById('menu-buttons').style.display = 'none';
-    grid.style.display = 'grid';
-    grid.innerHTML = '';
-    NATION_DEFS.forEach((d, i) => {
-      const card = el(`<div class="nation-card" tabindex="0">
-        <div class="nc-flag" id="ncf-${i}"></div>
-        <div class="nc-name">${esc(d.name)}</div>
-        <div class="nc-ruler">${esc(d.ruler)}</div>
-        <div class="nc-desc">${esc(d.desc)}</div>
-        <div class="nc-pers">${({ balanced: '⚖️ متعادل', industrial: '🏭 صنعتی', aggressive: '⚔️ جنگ‌جو', trader: '💰 بازرگان', peaceful: '🕊️ صلح‌طلب' })[d.pers]}</div>
-      </div>`);
-      card.onclick = () => { Audio2.click(); menuHooks && menuHooks.startGame(i); };
-      grid.appendChild(card);
-    });
-    // پرچم‌ها با کانوس
-    requestAnimationFrame(() => {
-      const tmp = document.createElement('canvas'); tmp.width = 96; tmp.height = 60;
-      NATION_DEFS.forEach((d, i) => {
-        const holder = document.getElementById('ncf-' + i);
-        if (!holder) return;
-        const cv = tmp.cloneNode(); const ctx = cv.getContext('2d');
-        R.drawFlag(ctx, { flag: d.flag, c1: d.c1, c2: d.c2, id: i }, 1, 1, 94, 58);
-        holder.appendChild(cv);
-      });
-    });
-    const back = el(`<button class="btn ghost" style="grid-column:1/-1">→ بازگشت</button>`);
-    back.onclick = () => { Audio2.click(); showMenu(); document.getElementById('menu-buttons').style.display = ''; };
-    grid.appendChild(back);
-  };
+  document.getElementById('menu-buttons').style.display = '';
+  document.getElementById('menu-setup').style.display = 'none';
+  document.getElementById('btn-new').onclick = () => { Audio2.click(); showSetup(); };
   document.getElementById('btn-continue').onclick = () => { Audio2.click(); menuHooks && menuHooks.continueGame(); };
   document.getElementById('btn-how').onclick = () => { Audio2.click(); showHelp(); };
+  document.getElementById('btn-tut').onclick = () => { Audio2.click(); showTutorial(); };
+  document.getElementById('tut-close').onclick = () => { Audio2.click(); document.getElementById('tutorial-modal').style.display = 'none'; };
 }
 export function hideMenu() {
   document.getElementById('menusc').style.display = 'none';
   document.getElementById('game').style.display = '';
+}
+
+// ---------- راه‌اندازی بازی جدید: خط زمانی ← سناریو ← سختی ← ملت ----------
+function showSetup() {
+  document.getElementById('menu-buttons').style.display = 'none';
+  const setup = document.getElementById('menu-setup');
+  setup.style.display = 'flex';
+  // کارت‌های خط زمانی
+  const tlc = document.getElementById('tl-cards');
+  tlc.innerHTML = '';
+  for (const t of TIMELINES) {
+    const card = el(`<div class="tl-card" data-tl="${t.id}">
+      <div class="tl-ic">${t.icon}</div>
+      <div class="tl-nm">${esc(t.name)}</div>
+      <div class="tl-tag">${esc(t.tagline)}</div>
+      <div class="tl-kind">${t.mapKind === 'real' ? '🗺️ نقشه‌ی واقعی جهان' : '🏰 جهان فانتزی'}</div>
+    </div>`);
+    card.onclick = () => {
+      Audio2.click();
+      menuPrefs.tl = t.id;
+      if (t.scenarios && t.scenarios.length && !t.scenarios.find(s => s.id === menuPrefs.scenario)) menuPrefs.scenario = t.scenarios[0].id;
+      saveMenuPrefs();
+      renderSetup();
+    };
+    tlc.appendChild(card);
+  }
+  renderSetup();
+}
+
+function renderSetup() {
+  const tl = timelineById(menuPrefs.tl);
+  document.getElementById('menu-title').textContent = tl.name;
+  document.getElementById('menu-sub').textContent = `${tl.tagline} — ${tl.desc}`;
+  document.querySelectorAll('#tl-cards .tl-card').forEach(c => c.classList.toggle('on', c.dataset.tl === tl.id));
+  // سناریو (فقط ویکتوریا)
+  const scSec = document.getElementById('scenario-section');
+  if (tl.scenarios && tl.scenarios.length) {
+    scSec.style.display = '';
+    const sc = document.getElementById('scenario-chips');
+    sc.innerHTML = '';
+    for (const s of tl.scenarios) {
+      const chip = el(`<button class="chip" data-sc="${s.id}"><b>${s.icon} ${esc(s.name)}</b><span class="dim">${esc(s.desc)}</span></button>`);
+      chip.onclick = () => { Audio2.click(); menuPrefs.scenario = s.id; saveMenuPrefs(); renderSetup(); };
+      sc.appendChild(chip);
+    }
+  } else scSec.style.display = 'none';
+  // درجه‌ی سختی
+  const dc = document.getElementById('diff-chips');
+  dc.innerHTML = '';
+  for (const d of DIFFICULTIES) {
+    const chip = el(`<button class="chip" data-diff="${d.id}"><b>${d.icon} ${esc(d.name)}</b><span class="dim">${esc(d.desc)}</span></button>`);
+    chip.onclick = () => { Audio2.click(); menuPrefs.diff = d.id; saveMenuPrefs(); renderSetup(); };
+    dc.appendChild(chip);
+  }
+  // ملت‌ها
+  const defs = tl.mapKind === 'real' ? tl.nations : NATION_DEFS;
+  const sc = tl.scenarios && tl.scenarios.find(s => s.id === menuPrefs.scenario);
+  const locked = sc && sc.lockedNation !== undefined ? sc.lockedNation : -1;
+  const grid = document.getElementById('nation-grid');
+  grid.style.display = 'grid';
+  grid.innerHTML = '';
+  if (locked >= 0 && defs[locked]) {
+    grid.appendChild(el(`<div class="setup-note">🔒 این سناریو از نگاه «${esc(defs[locked].name)}» روایت می‌شود — تاریخ را با او پیش ببرید.</div>`));
+  }
+  defs.forEach((d, i) => {
+    if (locked >= 0 && i !== locked) return;
+    const card = el(`<div class="nation-card" tabindex="0">
+      <div class="nc-flag" id="ncf-${i}"></div>
+      <div class="nc-name">${esc(d.name)}</div>
+      <div class="nc-ruler">${esc(d.ruler)}</div>
+      <div class="nc-desc">${esc(d.desc)}</div>
+      <div class="nc-pers">${({ balanced: '⚖️ متعادل', industrial: '🏭 صنعتی', aggressive: '⚔️ جنگ‌جو', trader: '💰 بازرگان', peaceful: '🕊️ صلح‌طلب' })[d.pers] || ''}</div>
+    </div>`);
+    card.onclick = () => {
+      Audio2.click();
+      menuHooks && menuHooks.startGame({
+        timelineId: tl.id,
+        scenarioId: tl.scenarios ? menuPrefs.scenario : null,
+        difficulty: menuPrefs.diff,
+        nationIdx: i,
+      });
+    };
+    grid.appendChild(card);
+  });
+  // پرچم‌ها با کانوس
+  requestAnimationFrame(() => {
+    const tmp = document.createElement('canvas'); tmp.width = 96; tmp.height = 60;
+    defs.forEach((d, i) => {
+      if (locked >= 0 && i !== locked) return;
+      const holder = document.getElementById('ncf-' + i);
+      if (!holder) return;
+      const cv = tmp.cloneNode(); const ctx = cv.getContext('2d');
+      R.drawFlag(ctx, { flag: d.flag, c1: d.c1, c2: d.c2, id: i }, 1, 1, 94, 58);
+      holder.appendChild(cv);
+    });
+  });
+  document.getElementById('setup-back').onclick = () => { Audio2.click(); showMenu(); };
 }
 
 // ================== کروم بازی ==================
@@ -105,6 +183,8 @@ function bindChrome() {
   document.getElementById('btn-burger').onclick = () => { Audio2.click(); showGameMenu(); };
 }
 export function setSpeed(i) {
+  // در «افسانه‌ای» فقط پاز/آن‌پاز مجاز است
+  if (i !== 0 && S && S.diffMods && S.diffMods.noSpeed) return;
   if (i === 0) { S.paused = !S.paused; }
   else { S.speed = i; S.paused = false; }
   refreshTopbar();
@@ -146,9 +226,13 @@ export function refreshTopbar() {
   document.getElementById('tb-date').textContent = fDate(S.week);
   const eraEl = document.getElementById('tb-era');
   if (eraEl) { eraEl.textContent = `${ERAS[S.era || 0].name}${S.phase === 'prologue' ? ' — دوران شاهزادی' : ''}`; eraEl.title = 'عصر کنونی؛ فناوری‌ها و قابلیت‌های تازه با پیشروی زمان گشایش می‌یابند'; }
+  const noSpeed = !!(S.diffMods && S.diffMods.noSpeed);
   for (let i = 0; i <= 4; i++) {
     const btn = document.getElementById('sp' + i);
+    if (!btn) continue;
+    btn.style.display = (i > 0 && noSpeed) ? 'none' : '';
     btn.classList.toggle('on', i === 0 ? S.paused : (!S.paused && S.speed === i));
+    if (noSpeed && i > 0) btn.classList.remove('on');
   }
   // بنر جنگ
   const myWars = S.wars.filter(w => SIM.warHas(S, w, S.playerId));
@@ -1001,21 +1085,58 @@ export function onTick() {
 }
 
 // ================== مودال رویداد ==================
+// رویدادهای تصادفی پس از این مدت بدون انتخاب بسته می‌شوند (نمایش کوتاه‌تر)
+export const EV_TIMEOUT_MS = 20000;
+let evTimerId = null;
+function clearEvTimer() { if (evTimerId) { clearTimeout(evTimerId); evTimerId = null; } }
+export function dismissEvent() {
+  clearEvTimer();
+  const e = S && S.pendingEvent;
+  if (!e) return;
+  S.pendingEvent = null;
+  S.paused = S.pausedBeforeEvent ?? false;
+  document.getElementById('event-modal').style.display = 'none';
+  addLog(S, '⏳', `رویداد «${e.title}» بی‌پاسخ ماند.`);
+  refreshTopbar();
+}
 function showEvent() {
   const e = S.pendingEvent;
   const m = document.getElementById('event-modal');
   m.style.display = 'flex';
   const box = document.getElementById('event-box');
+  // رویدادهای کلیدی (آغاز خط زمانی، دوران شاهزادی، انتخابات) تا تصمیم باز می‌مانند
+  const keyEv = !!(e.id && (String(e.id).startsWith('tl_') || String(e.id).startsWith('pr') || e.id === 'election' || S.phase === 'prologue'));
+  const timed = !keyEv;
   box.innerHTML = `${e.img ? `<img class="ev-img" src="${e.img}" alt="">` : `<div class="ev-ic">${e.icon}</div>`}
     <div class="ev-title">${esc(e.title)}</div>
-    <div class="ev-text">${esc(e.text)}</div>
+    <div class="ev-tabs">
+      <button class="ev-tab on" data-tab="orig">📜 نسخه‌ی اصلی</button>
+      ${e.t2 ? `<button class="ev-tab" data-tab="simple">💬 ترجمه‌ی ساده</button>` : ''}
+    </div>
+    <div class="ev-text" data-text="orig">${esc(e.text)}</div>
+    ${timed ? `<div class="ev-timer"><div class="ev-timer-bar"></div><span class="dim">بدون انتخاب، رویداد پس از چند لحظه بسته می‌شود</span></div>` : ''}
     <div class="ev-opts"></div>`;
+  box.querySelectorAll('.ev-tab').forEach(tb => {
+    tb.onclick = () => {
+      Audio2.click();
+      box.querySelectorAll('.ev-tab').forEach(x => x.classList.toggle('on', x === tb));
+      const txt = box.querySelector('.ev-text');
+      txt.textContent = tb.dataset.tab === 'simple' ? (e.t2 || e.text) : e.text;
+    };
+  });
   const opts = box.querySelector('.ev-opts');
   e.opts.forEach((o, i) => {
     const b = el(`<button class="ev-opt"><b>${esc(o.label)}</b><span class="dim">${esc(o.hint)}</span></button>`);
-    b.onclick = () => { Audio2.click(); SIM.applyEventChoice(S, e, i); m.style.display = 'none'; refreshTopbar(); renderPanel(); refreshAlerts(); };
+    b.onclick = () => { Audio2.click(); clearEvTimer(); SIM.applyEventChoice(S, e, i); m.style.display = 'none'; refreshTopbar(); renderPanel(); refreshAlerts(); };
     opts.appendChild(b);
   });
+  if (timed) {
+    const bar = box.querySelector('.ev-timer-bar');
+    bar.style.animation = 'none'; void bar.offsetWidth; // ری‌استارت نوار
+    bar.style.animation = '';
+    clearEvTimer();
+    evTimerId = setTimeout(dismissEvent, EV_TIMEOUT_MS);
+  }
 }
 // اعلان جنگ رسیده
 function checkWarOffers() {
@@ -1066,13 +1187,13 @@ function checkEnd() {
       const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : fd(i + 1) + '.';
       return `<div class="endrow ${n2.player ? 'me' : ''}"><span>${medal}</span><b>${esc(n2.name)}</b><span class="dim">اعتبار ${fd(Math.round(n2.prestige))}</span></div>`;
     }).join('');
+    const endTxt = S.tl && S.tl.endText ? S.tl.endText : `سال ${fd(S.tl ? S.tl.endYear : 1900)} فرا رسید. رتبه نهایی شما: <b class="gold">${fd(rank)}</b> از ${fd(rk.length)}`;
     document.getElementById('end-text').innerHTML =
-      `قرن نوزدهم به پایان رسید. رتبه نهایی شما: <b class="gold">${fd(rank)}</b> از ${fd(rk.length)}` +
-      `<div class="endtable">${rows}</div>`;
+      `${endTxt}<div class="endtable">${rows}</div>`;
   } else if (S.defeat) {
     showEnd('💀', 'سقوط', 'سرزمین شما به‌تمامی از دست رفت. تاریخ، صفحه‌تراش تازه‌ای خواهد یافت...');
   } else if (S.victory) {
-    showEnd('👑', 'پیروزی!', `${pn.name} در آستانه قرن نو به بزرگ‌ترین قدرت جهان بدل شد!`);
+    showEnd('👑', 'پیروزی!', `${pn.name} به بزرگ‌ترین قدرت جهان بدل شد!`);
   }
 }
 function showEnd(icon, title, text) {
@@ -1088,40 +1209,156 @@ function showEnd(icon, title, text) {
 
 // ================== منوی بازی/راهنما ==================
 function showGameMenu() {
-  const m = document.getElementById('confirm-modal');
   showHelp(true);
 }
 export function showHelp(inGame) {
   const m = document.getElementById('help-modal');
+  const tlName = S && S.tl ? S.tl.name : 'امپراتوری';
+  const endYear = S && S.tl ? S.tl.endYear : 1900;
+  const noSpeed = S && S.diffMods && S.diffMods.noSpeed;
   m.style.display = 'flex';
   document.getElementById('help-body').innerHTML = `
-    <h2>🏛️ امپراتوری ۱۸۳۶</h2>
-    <p class="dim">استراتژی بزرگ قرن نوزدهم — اقتصاد، جامعه و جنگ را هم‌زمان مدیریت کنید.</p>
+    <h2>🏛️ ${tlName}</h2>
+    <p class="dim">استراتژی بزرگ — اقتصاد، جامعه، دیپلماسی و جنگ را هم‌زمان مدیریت کنید.</p>
     <h3>چرخه بازی</h3>
     <ul>
-      <li>🌾 <b>اقتصاد:</b> در استان‌ها ساختمان بسازید؛ کالاها در بازار جهانی قیمت می‌گیرند.</li>
+      <li>🌾 <b>اقتصاد:</b> در استان‌ها ساختمان بسازید (هزینه از خزانه کم می‌شود)؛ کالاها در بازار جهانی قیمت می‌گیرند. اقتصاد در همه‌ی خطوط زمانی کلید پیروزی است.</li>
       <li>👥 <b>جمعیت:</b> طبقات مختلف نیازهایی دارند؛ امید به زندگی بالا = رشد و آرامش.</li>
       <li>🔥 <b>ناآرامی:</b> مالیات سنگین و بی‌کاری شورش می‌آورد.</li>
       <li>🎓 <b>فناوری:</b> با دانشگاه نوآوری بسازید و فناوری انتخاب کنید.</li>
       <li>🏛️ <b>سیاست:</b> قوانین را با شانس متکی بر گروه‌های ذی‌نفع تصویب کنید.</li>
       <li>⚔️ <b>جنگ:</b> پادگان بسازید، ارتش بسازید و با کلیک روی نقشه فرمان دهید.</li>
-      <li>👑 <b>هدف:</b> تا سال ۱۹۰۰ بزرگ‌ترین قدرت جهان شوید.</li>
+      <li>👑 <b>هدف:</b> تا سال ${fd(endYear)} بزرگ‌ترین قدرت جهان شوید (بیشترین اعتبار).</li>
     </ul>
     <h3>کلیدها</h3>
     <ul>
-      <li><b>Space</b> مکث/ادامه — <b>1 تا 4</b> سرعت</li>
+      <li><b>Space</b> مکث/ادامه — <b>1 تا 4</b> سرعت${noSpeed ? ' <span class="neg">(در «افسانه‌ای» فقط پاز/آن‌پاز فعال است)</span>' : ''}</li>
       <li><b>Esc</b> بستن پنل / لغو انتخاب</li>
       <li>درگ برای حرکت دوربین، اسکرول برای بزرگ‌نمایی</li>
     </ul>
-    ${inGame ? `<div class="row-btns" style="margin-top:8px">
-      <button class="btn small" id="help-save">💾 ذخیره</button>
+    <div class="row-btns" style="margin-top:8px">
+      <button class="btn small" id="help-tut">📖 توتوریال کامل</button>
+      ${inGame ? `<button class="btn small" id="help-save">💾 ذخیره</button>
       <button class="btn small ghost" id="help-sound">🔊 صدا: روشن/خاموش</button>
-      <button class="btn small danger" id="help-quit">خروج به منو</button>
-    </div>` : ''}`;
+      <button class="btn small danger" id="help-quit">خروج به منو</button>` : ''}
+    </div>`;
   document.getElementById('help-close').onclick = () => { Audio2.click(); m.style.display = 'none'; };
+  document.getElementById('help-tut').onclick = () => { Audio2.click(); m.style.display = 'none'; showTutorial(); };
   if (inGame) {
     document.getElementById('help-save').onclick = () => { saveGame(S); toast('💾', 'بازی ذخیره شد'); };
     document.getElementById('help-sound').onclick = () => { Audio2.on = !Audio2.on; toast('🔊', Audio2.on ? 'صدا روشن شد' : 'صدا خاموش شد'); };
     document.getElementById('help-quit').onclick = () => { saveGame(S); location.reload(); };
   }
+}
+
+// ================== توتوریال کامل ==================
+const TUTORIAL_PAGES = [
+  { icon: '👑', title: 'خوش آمدید', items: [
+    'به «امپراتوری» خوش آمدید — استراتژی بزرگی که در آن اقتصاد، سیاست، دیپلماسی و جنگ به هم گره خورده‌اند.',
+    'چهار خط زمانی دارید: ویکتوریا فانتزی ۱۸۳۶ (با چند سناریو)، جنگ جهانی اول ۱۹۱۴، جنگ جهانی دوم ۱۹۳۸ و دنیای مدرن ۲۰۲۶.',
+    'خط‌های ۱۹۱۴/۱۹۳۸/۲۰۲۶ روی نقشه‌ی واقعی جهان با نام کشورهای واقعی جریان دارند؛ فقط ۱۸۳۶ فانتزی است.',
+    'هدف نهایی: با رشد اقتصاد و اعتبار (Prestige)، کشورتان را به برترین قدرت جهان برسانید.',
+  ] },
+  { icon: '🗺️', title: 'نقشه و دوربین', items: [
+    'نقشه‌ی جهان بزرگ و دقیق است؛ با کشیدن ماوس (درگ) دوربین را جابه‌جا کنید و با اسکرول بزرگ‌نمایی کنید.',
+    'روی مینی‌مپ گوشه‌ی پایین راست کلیک کنید تا دوربین به آن نقطه بپرد.',
+    'حالت‌های نقشه (سیاسی، زمین، جمعیت، تولید، ناآرامی) را از نوار پایین نقشه عوض کنید.',
+    'روی هر استان کلیک کنید تا پنل استان باز شود: ساختمان‌ها، جمعیت، منابع و ناآرامی آن‌جا است.',
+  ] },
+  { icon: '📊', title: 'نوار بالا', items: [
+    'نوار بالا وضعیت کشورتان را نشان می‌دهد: پول (خزانه)، تولید ناخالص، اعتبار، جمعیت، پژوهش، سواد، ارتش و تاریخ.',
+    'عدد کنار پول، تراز هفتگی است؛ اگر منفی شد هزینه‌ها را کم کنید یا مالیات و تولید را بالا ببرید.',
+    'دکمه‌ی ☰ منوی بازی (ذخیره، صدا، توتوریال، خروج) را باز می‌کند.',
+  ] },
+  { icon: '🏭', title: 'اقتصاد — قلب بازی', items: [
+    'اقتصاد در همه‌ی خطوط زمانی نقش کلیدی دارد: بدون درآمد، نه ارتشی می‌ماند نه رفاهی.',
+    'در پنل استان ساختمان بسازید: مزرعه و دامداری (غذا)، معدن زغال و آهن، کارخانه‌ی نساجی و ابزارسازی، بندر و راه‌آهن.',
+    'هر ساختمان هزینه‌ی کامل خود را هنگام شروع ساخت از خزانه کم می‌کند؛ ساخت چند هفته طول می‌کشد و سپس کالا تولید می‌کند.',
+    'بازار (🏪) قیمت کالاها را نشان می‌دهد؛ کمبودها را جبران کنید و مازاد را بفروشید.',
+    'صنعت: مواد خام را به کالای صنعتی تبدیل کنید — ارزش افزوده ثروت واقعی است.',
+  ] },
+  { icon: '👥', title: 'جمعیت و جامعه', items: [
+    'هر استان طبقاتی دارد: کشاورز، کارگر، کارمند، سرمایه‌دار، اشراف، سرباز و بیکار.',
+    'شغل و درآمد طبقات، امید به زندگی (SOL) و ناآرامی را می‌سازد؛ ناآرامی بالا = شورش.',
+    'سواد را با مدرسه/دانشگاه بالا ببرید؛ سواد، پژوهش و درآمد کارگران را افزایش می‌دهد.',
+    'رشد جمعیت به غذا، بهداشت (پزشکی) و ثبات بستگی دارد.',
+  ] },
+  { icon: '🎓', title: 'فناوری', items: [
+    'پنل فناوری (🎓): یک فناوری را برای پژوهش انتخاب کنید؛ امتیاز پژوهش هر هفته از دانشگاه‌ها و سواد می‌آید.',
+    'فناوری‌ها در شاخه‌های اقتصادی، نظامی و اجتماعی دسته‌بندی شده‌اند و هر کدام ساختمان یا توانایی تازه‌ای را باز می‌کنند.',
+    'در خط‌های زمانی واقعی، فناوری‌های پایه‌ی همان دوره از پیش کشف شده‌اند.',
+  ] },
+  { icon: '🏛️', title: 'سیاست و خزانه', items: [
+    'پنل سیاست: نرخ مالیات را تنظیم کنید (بالاتر = درآمد بیشتر اما نارضایتی بیشتر).',
+    'قوانین (حقوق کارگران، حکومت، نظام مالیاتی) را پیشنهاد دهید؛ گروه‌های ذی‌نفع (اشراف، سرمایه‌داران، کارگران…) موافق یا مخالف‌اند.',
+    'تصویب قانون زمان می‌برد؛ رضایت گروه‌های قدرتمند یعنی ثبات کشور.',
+  ] },
+  { icon: '🤝', title: 'دیپلماسی و جنگ', items: [
+    'پنل دیپلماسی: روابط با کشورها را بهبود دهید یا پیمان ببندید؛ با انتخاب هدفِ جنگ، اعلان جنگ کنید.',
+    'گردان‌ها با پادگان تأمین می‌شوند؛ از پنل نظام، ارتش بسازید و با کلیک روی نقشه فرمان حرکت دهید.',
+    'ارتش‌ها با هم می‌جنگند، استان‌ها را تصرف می‌کنند و شورشیان را سرکوب می‌کنند.',
+    'جنگ هزینه و فرسودگی دارد؛ بیهوده جنگ را آغاز نکنید.',
+  ] },
+  { icon: '🫅', title: 'دربار و مأموریت‌ها', items: [
+    'دربار سلطنتی (فقط خط ویکتوریا): اعضای خانواده رابطه و خواسته‌های خود را دارند؛ با آن‌ها گفتگو کنید و مشورت بگیرید.',
+    'مأموریت‌ها (🎯) راهنمای پیشرفت‌اند و پاداش می‌دهند.',
+    'رتبه‌بندی (👑) جایگاه جهانی شما را نشان می‌دهد و تاریخچه (📜) رویدادهای گذشته را ثبت می‌کند.',
+  ] },
+  { icon: '⚡', title: 'رویدادها و تصمیم‌ها', items: [
+    'در جریان بازی رویدادهای تصادفی پیش می‌آیند؛ هر تصمیم واقعاً روی کشور اثر می‌گذارد (پول، ارتش، ناآرامی، روابط…).',
+    'هر رویداد دو نسخه دارد: «نسخه‌ی اصلی» (رسمی و ادبی) و «ترجمه‌ی ساده» (محاوره‌ای) — با دکمه‌های بالای متن جابه‌جا شوید.',
+    'رویدادهای تصادفی پس از چند لحظه خودبه‌خود بسته می‌شوند؛ اگر تصمیمی نگیرید بدون اثر می‌مانند.',
+    'رویدادهای کلیدی (آغاز خط زمانی، انتخابات، دوران شاهزادی) تا وقتی تصمیم نگیرید باز می‌مانند.',
+  ] },
+  { icon: '⏱️', title: 'کنترل زمان و سختی', items: [
+    'Space مکث/ادامه؛ کلیدهای 1 تا 4 سرعت بازی را بالا می‌برند (1 کندترین، 4 سریع‌ترین).',
+    'در درجه‌ی سختی «افسانه‌ای» فقط پاز/آن‌پاز فعال است و سرعت‌بخشی غیرفعال می‌شود.',
+    'سختی روی هوش AI، رشد جمعیت، پیچیدگی اقتصاد (نوسان قیمت و هزینه‌ها) و بسامد رویدادها اثر می‌گذارد.',
+  ] },
+  { icon: '🏁', title: 'پایان', items: [
+    'بازی تا سال پایان خط زمانی ادامه دارد؛ برنده کسی است که بیشترین اعتبار را داشته باشد.',
+    'اگر همه‌ی استان‌هایتان را از دست بدهید، شکست خورده‌اید.',
+    'بازی هر ۲۶ هفته خودکار ذخیره می‌شود؛ از منوی ☰ هم می‌توانید دستی ذخیره کنید.',
+    'حالا نوبت شماست! 🚀 روی یک استان کلیک کنید و ساختمان بسازید.',
+  ] },
+];
+
+export function showTutorial() {
+  const m = document.getElementById('tutorial-modal');
+  if (!m) return;
+  m.style.display = 'flex';
+  let page = 0;
+  const n = TUTORIAL_PAGES.length;
+  const body = document.getElementById('tut-body');
+  const next = document.getElementById('tut-next');
+  const prev = document.getElementById('tut-prev');
+  const skip = document.getElementById('tut-skip');
+  const render = () => {
+    const p = TUTORIAL_PAGES[page];
+    body.innerHTML = `<div class="tut-ic">${p.icon}</div>
+      <div class="tut-title">${esc(p.title)} <span class="dim">(${fd(page + 1)} / ${fd(n)})</span></div>
+      <ul class="tut-items">${p.items.map(i => `<li>${i}</li>`).join('')}</ul>
+      <div class="tut-dots">${TUTORIAL_PAGES.map((_, i) => `<span class="tut-dot ${i === page ? 'on' : ''}"></span>`).join('')}</div>`;
+    prev.style.visibility = page === 0 ? 'hidden' : 'visible';
+    next.textContent = page === n - 1 ? '🚀 شروع کن!' : 'بعدی ←';
+  };
+  render();
+  next.onclick = () => {
+    Audio2.click();
+    if (page < n - 1) { page++; render(); }
+    else {
+      m.style.display = 'none';
+      if (S) {
+        if (S.pendingEvent) showEvent();
+        else { S.paused = false; refreshTopbar(); } // توتوریال تمام شد؛ بازی را آغاز کن
+      }
+    }
+  };
+  prev.onclick = () => { Audio2.click(); if (page > 0) { page--; render(); } };
+  const closeTut = () => {
+    m.style.display = 'none';
+    if (S && S.pendingEvent) showEvent();
+  };
+  skip.onclick = () => { Audio2.click(); closeTut(); };
+  document.getElementById('tut-close').onclick = () => { Audio2.click(); closeTut(); };
 }
