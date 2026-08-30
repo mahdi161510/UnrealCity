@@ -2,7 +2,7 @@
 import { mulberry32, makeNoise2D, fbm, pick } from './utils.js';
 import { PROV_SYLL_A, PROV_SYLL_B, NATION_DEFS } from './data.js';
 
-export const GW = 232, GH = 130;         // شبکه سلولی (بزرگ‌تر برای نقشه‌ی عظیم‌تر)
+export const GW = 320, GH = 160;        // شبکه سلولی (بزرگ‌تر — نقشه‌ی عظیم‌تر)
 export const CELL = 10;                  // پیکسل هر سلول (منطقی)
 export const W = GW * CELL, H = GH * CELL;
 

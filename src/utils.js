@@ -64,23 +64,23 @@ export function fSign(n, digits = 0) {
 }
 export function fPct(x) { return faNum.format(Math.round(x * 100)) + '٪'; }
 
-// تاریخ هفته‌ای از ۱ ژانویه ۱۸۳۶
+// تاریخ هفته‌ای از سال آغازِ خط زمانی (پیش‌فرض ۱۸۳۶)
 export const FA_MONTHS = ['ژانویه', 'فوریه', 'مارس', 'آوریل', 'مه', 'ژوئن', 'ژوئیه', 'اوت', 'سپتامبر', 'اکتبر', 'نوامبر', 'دسامبر'];
-export function weekToDate(week) {
+export function weekToDate(week, startYear = 1836) {
   const days = week * 7;
-  const y = 1836 + Math.floor(days / 365.25);
+  const y = startYear + Math.floor(days / 365.25);
   let d = Math.floor(days % 365.25);
   const ml = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   let m = 0;
   while (m < 11 && d >= ml[m]) { d -= ml[m]; m++; }
   return { y, m, d: d + 1 };
 }
-export function fDate(week) {
-  const t = weekToDate(week);
+export function fDate(week, startYear = 1836) {
+  const t = weekToDate(week, startYear);
   return faNum.format(t.d) + ' ' + FA_MONTHS[t.m] + ' ' + faNum.format(t.y);
 }
-export function fYearMonth(week) {
-  const t = weekToDate(week);
+export function fYearMonth(week, startYear = 1836) {
+  const t = weekToDate(week, startYear);
   return FA_MONTHS[t.m] + ' ' + faNum.format(t.y);
 }
 

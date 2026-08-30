@@ -1,5 +1,4 @@
 // ---------- رندر نقشه: زمین نقاشی‌شده، مُدها، ذرات، ارتش‌ها ----------
-import { GW, GH, CELL, W, H } from './mapgen.js';
 import { clamp, lerp, mulberry32, smoothstep } from './utils.js';
 import { BUILDINGS, TERRAIN, POP_CLASSES } from './data.js';
 import { REBEL, atWar, warHas } from './sim.js';
@@ -18,7 +17,8 @@ const PAL = {
 
 export class MapRenderer {
   constructor() {
-    this.cam = { x: W / 2, y: H / 2, z: 0.55 };
+    this.cam = { x: 0, y: 0, z: 0.55 };
+    this.GW = 0; this.GH = 0; this.CELL = 10; this.W = 0; this.H = 0;
     this.dirtyTerrain = true; this.dirtyPol = true; this.dirtyBorders = true;
     this.clouds = []; this.smoke = [];
     this.mapMode = 'political';
@@ -27,13 +27,28 @@ export class MapRenderer {
   attach(cv, mini) {
     this.cv = cv; this.ctx = cv.getContext('2d');
     this.mini = mini; this.mctx = mini.getContext('2d');
-    this.terCv = document.createElement('canvas'); this.terCv.width = GW; this.terCv.height = GH;
-    this.polCv = document.createElement('canvas'); this.polCv.width = GW; this.polCv.height = GH;
+    this.terCv = document.createElement('canvas');
+    this.polCv = document.createElement('canvas');
     this.borCv = document.createElement('canvas');
     this.decoCv = document.createElement('canvas');
     this.resize();
     addEventListener('resize', () => this.resize());
-    for (let i = 0; i < 16; i++) this.clouds.push({ x: Math.random() * W, y: Math.random() * H, r: 140 + Math.random() * 320, s: 4 + Math.random() * 10, o: 0.05 + Math.random() * 0.07 });
+  }
+  // هماهنگ‌سازی لایه‌ها با ابعاد نقشه‌ی جاری (فانتزی یا واقعی)
+  syncMap(map) {
+    const g = map.grid;
+    if (this.GW === g.gw && this.GH === g.gh) return;
+    const first = this.GW === 0;
+    this.GW = g.gw; this.GH = g.gh; this.CELL = g.cell;
+    this.W = map.w; this.H = map.h;
+    this.terCv.width = this.GW; this.terCv.height = this.GH;
+    this.polCv.width = this.GW; this.polCv.height = this.GH;
+    if (first) {
+      this.cam.x = this.W / 2; this.cam.y = this.H / 2;
+      this.clouds = [];
+      for (let i = 0; i < 16; i++) this.clouds.push({ x: Math.random() * this.W, y: Math.random() * this.H, r: 140 + Math.random() * 320, s: 4 + Math.random() * 10, o: 0.05 + Math.random() * 0.07 });
+    }
+    this.dirtyTerrain = true; this.dirtyPol = true; this.dirtyBorders = true;
   }
   resize() {
     const r = this.cv.parentElement.getBoundingClientRect();
@@ -43,7 +58,8 @@ export class MapRenderer {
 
   // ---------- terrain ----------
   drawTerrain(state) {
-    const { cells, elev, moist, seaLevel } = state.map.grid;
+    const { cells, elev, moist, seaLevel, gw: GW, gh: GH, cell: CELL } = state.map.grid;
+    const W = this.W, H = this.H;
     const c = this.terCv.getContext('2d');
     const img = c.createImageData(GW, GH);
     const d = img.data;
@@ -150,7 +166,7 @@ export class MapRenderer {
   provPop(p) { return POP_CLASSES ? Object.values(p.pops).reduce((a, b) => a + b, 0) : 0; }
 
   drawPolitical(state) {
-    const { cells } = state.map.grid;
+    const { cells, gw: GW, gh: GH } = state.map.grid;
     const c = this.polCv.getContext('2d');
     c.clearRect(0, 0, GW, GH);
     const img = c.createImageData(GW, GH); const d = img.data;
@@ -188,7 +204,8 @@ export class MapRenderer {
   }
 
   drawBorders(state) {
-    const { cells } = state.map.grid;
+    const { cells, gw: GW, gh: GH, cell: CELL } = state.map.grid;
+    const W = this.W, H = this.H;
     this.borCv.width = W; this.borCv.height = H;
     const c = this.borCv.getContext('2d');
     c.clearRect(0, 0, W, H);
@@ -260,6 +277,7 @@ export class MapRenderer {
   }
   pickProv(state, sx, sy) {
     const w = this.toWorld(sx, sy);
+    const { gw: GW, gh: GH, cell: CELL } = state.map.grid;
     const gx = Math.floor(w.x / CELL), gy = Math.floor(w.y / CELL);
     if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return -1;
     return state.map.grid.cells[gy * GW + gx];
@@ -273,13 +291,14 @@ export class MapRenderer {
   }
   clampCam() {
     const m = 200 / this.cam.z;
-    this.cam.x = clamp(this.cam.x, -m, W + m); this.cam.y = clamp(this.cam.y, -m, H + m);
+    this.cam.x = clamp(this.cam.x, -m, this.W + m); this.cam.y = clamp(this.cam.y, -m, this.H + m);
   }
   focusOn(x, y, z) { this.cam.x = x; this.cam.y = y; if (z) this.cam.z = z; this.clampCam(); }
 
   // ---------- فریم اصلی ----------
   draw(state, ui, t, dt) {
     const { ctx } = this;
+    this.syncMap(state.map);
     if (this.dirtyTerrain) this.drawTerrain(state);
     if (this.dirtyPol) this.drawPolitical(state);
     if (this.dirtyBorders) this.drawBorders(state);
@@ -296,7 +315,7 @@ export class MapRenderer {
     ctx.drawImage(this.decoCv, 0, 0);
     if (this.mapMode !== 'terrain') {
       ctx.globalAlpha = 0.86;
-      ctx.drawImage(this.polCv, 0, 0, GW, GH, 0, 0, W, H);
+      ctx.drawImage(this.polCv, 0, 0, this.GW, this.GH, 0, 0, this.W, this.H);
       ctx.globalAlpha = 1;
     }
     ctx.drawImage(this.borCv, 0, 0);
@@ -329,6 +348,7 @@ export class MapRenderer {
   drawWaves(state, t) {
     const cs = state.map.coastSea;
     if (!cs || !cs.length) return;
+    const { gw: GW, gh: GH, cell: CELL } = state.map.grid;
     const c = this.ctx;
     c.save();
     c.strokeStyle = 'rgba(228,240,248,1)';
@@ -453,13 +473,13 @@ export class MapRenderer {
     if (this._birdT > 7 && this.birdsF.length < 3) {
       this._birdT = 0;
       this.birdsF.push({
-        x: -50, y: Math.random() * H * 0.6 + H * 0.12,
+        x: -50, y: Math.random() * this.H * 0.6 + this.H * 0.12,
         sp: 30 + Math.random() * 20, vy: (Math.random() - 0.5) * 12,
         n: 4 + (Math.random() * 3 | 0), ph: Math.random() * 9,
       });
     }
     for (const f of this.birdsF) { f.x += f.sp * dt; f.y += f.vy * dt; }
-    this.birdsF = this.birdsF.filter(f => f.x < W + 90 && f.y > -70 && f.y < H + 70);
+    this.birdsF = this.birdsF.filter(f => f.x < this.W + 90 && f.y > -70 && f.y < this.H + 70);
   }
   drawBirds(t) {
     const ctx = this.ctx;
@@ -684,7 +704,7 @@ export class MapRenderer {
     const ctx = this.ctx;
     for (const c of this.clouds) {
       c.x += c.s * dt;
-      if (c.x - c.r > W + 100) { c.x = -c.r - 50; c.y = Math.random() * H; }
+      if (c.x - c.r > this.W + 100) { c.x = -c.r - 50; c.y = Math.random() * this.H; }
       const g = ctx.createRadialGradient(c.x, c.y, 1, c.x, c.y, c.r);
       g.addColorStop(0, `rgba(250,248,242,${c.o})`);
       g.addColorStop(1, 'rgba(250,248,242,0)');
@@ -694,6 +714,8 @@ export class MapRenderer {
   }
   drawMinimap(state) {
     if (!this.mini) return;
+    const { gw: GW, gh: GH } = state.map.grid;
+    const W = this.W, H = this.H;
     const mw = this.mini.width, mh = this.mini.height;
     const c = this.mctx;
     c.clearRect(0, 0, mw, mh);
@@ -713,7 +735,7 @@ export class MapRenderer {
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 function bez(a, c, b, u) { const v = 1 - u; return v * v * a + 2 * v * u * c + u * u * b; }
 function seaDir(state, p) {
-  const { cells } = state.map.grid;
+  const { cells, gw: GW, gh: GH, cell: CELL } = state.map.grid;
   for (let a8 = 0; a8 < 8; a8++) {
     const ang = (a8 / 8) * Math.PI * 2;
     const gx = clamp(Math.round(p.cx / CELL + Math.cos(ang) * 3), 0, GW - 1);
@@ -771,7 +793,7 @@ function star(ctx, x, y, r1, r2, n) {
 function fa(n) { return Number(n).toLocaleString('fa-IR'); }
 
 function fillProv(ctx, state, p) {
-  const { cells } = state.map.grid;
+  const { gw: GW, cell: CELL } = state.map.grid;
   ctx.beginPath();
   for (const i of p.cells) {
     const x = (i % GW) * CELL, y = ((i / GW) | 0) * CELL;
@@ -780,7 +802,7 @@ function fillProv(ctx, state, p) {
   ctx.fill();
 }
 function strokeProv(ctx, state, p) {
-  const { cells } = state.map.grid;
+  const { gw: GW, gh: GH, cell: CELL } = state.map.grid;
   ctx.beginPath();
   const set = new Set(p.cells);
   for (const i of p.cells) {

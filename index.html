@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>امپراتوری ۱۸۳۶ — استراتژی بزرگ</title>
+<title>امپراتوری — استراتژی بزرگ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700;900&display=swap" rel="stylesheet">
@@ -18,15 +18,34 @@
   <div class="menu-inner">
     <div class="menu-top">
       <div class="menu-crown">👑</div>
-      <h1 class="menu-title">امپراتوری ۱۸۳۶</h1>
-      <div class="menu-sub">استراتژی بزرگ عصر بخار و امپراتوری — اقتصاد، جامعه، دیپلماسی و جنگ</div>
+      <h1 class="menu-title" id="menu-title">امپراتوری</h1>
+      <div class="menu-sub" id="menu-sub">استراتژی بزرگ — اقتصاد، جامعه، دیپلماسی و جنگ</div>
     </div>
     <div id="menu-buttons">
       <button id="btn-new" class="mbtn primary">⚔️ بازی جدید</button>
       <button id="btn-continue" class="mbtn">📜 ادامه بازی</button>
+      <button id="btn-tut" class="mbtn ghost">📖 توتوریال کامل</button>
       <button id="btn-how" class="mbtn ghost">❓ راهنما</button>
     </div>
-    <div id="nation-grid"></div>
+    <div id="menu-setup" style="display:none">
+      <div class="setup-section">
+        <div class="setup-label">۱) خط زمانی را برگزینید</div>
+        <div id="tl-cards" class="tl-cards"></div>
+      </div>
+      <div class="setup-section" id="scenario-section" style="display:none">
+        <div class="setup-label">۲) سناریو</div>
+        <div id="scenario-chips" class="chips"></div>
+      </div>
+      <div class="setup-section">
+        <div class="setup-label">۳) درجه‌ی سختی</div>
+        <div id="diff-chips" class="chips"></div>
+      </div>
+      <div class="setup-section">
+        <div class="setup-label">۴) ملت خود را برگزینید</div>
+        <div id="nation-grid" class="nation-grid"></div>
+      </div>
+      <button id="setup-back" class="btn ghost">→ بازگشت</button>
+    </div>
     <div class="menu-foot">ساخته‌شده با 🖤 — الهام‌گرفته از Victoria 3</div>
   </div>
 </div>
@@ -118,6 +137,17 @@
     <div class="modal-box wide">
       <div id="help-body"></div>
       <div class="row-btns center"><button id="help-close" class="mbtn primary smallbtn">بستن</button></div>
+    </div>
+  </div>
+  <div id="tutorial-modal" class="modal" style="display:none">
+    <div class="modal-box tut-box">
+      <button id="tut-close" class="icon-btn tut-x" title="بستن">✕</button>
+      <div id="tut-body"></div>
+      <div class="row-btns center tut-nav">
+        <button id="tut-prev" class="mbtn ghost smallbtn">→ قبلی</button>
+        <button id="tut-skip" class="mbtn ghost smallbtn">رد شدن</button>
+        <button id="tut-next" class="mbtn primary smallbtn">بعدی ←</button>
+      </div>
     </div>
   </div>
   <div id="endscreen" class="modal" style="display:none">

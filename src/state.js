@@ -1,26 +1,48 @@
 // ---------- ساخت بازی جدید + ذخیره/بارگذاری ----------
 import { genMap } from './mapgen.js';
+import { genRealMap } from './worldmap.js';
 import { NATION_DEFS, GOODS, BUILDINGS, FAMILY_PORTRAITS, DAUGHTER_NAMES, SON_NAMES } from './data.js';
+import { timelineById, difficultyById, OTHER_NATION } from './timelines.js';
 import { mulberry32, clamp, pick } from './utils.js';
 
 export const SAVE_KEY = 'unrealcity1836_save_v3';
 
-export function newGame(seed, playerIdx) {
-  const map = genMap(seed);
-  const rng = mulberry32(seed ^ 0x9e3779b9);
+// قوانین آغازین هر خط زمانی (با توجه به روح دوره)
+function defaultLaws(tlId, pers, rng) {
+  if (tlId === 'modern') return { tax: 'prop', labor: 'unions', gov: pers === 'aggressive' ? 'absolut' : 'repub' };
+  if (tlId === 'ww2') return { tax: rng() < 0.5 ? 'land' : 'prop', labor: 'poor', gov: pers === 'aggressive' ? 'absolut' : 'constit' };
+  if (tlId === 'ww1') return { tax: rng() < 0.5 ? 'poll' : 'land', labor: 'poor', gov: pers === 'aggressive' ? 'absolut' : 'constit' };
+  return { tax: pick(rng, ['poll', 'land']), labor: rng() < 0.55 ? 'serf' : 'poor', gov: rng() < 0.5 ? 'absolut' : 'constit' };
+}
 
-  const nations = NATION_DEFS.map((d, i) => ({
-    id: i, name: d.name, adj: d.adj, ruler: d.ruler, pers: d.pers, desc: d.desc,
+// opts: { timelineId, scenarioId, difficulty, nationIdx } — برای سازگاری، عدد هم می‌پذیرد
+export function newGame(seed, opts) {
+  if (typeof opts === 'number') opts = { nationIdx: opts };
+  const tlId = opts.timelineId || 'victoria';
+  const tl = timelineById(tlId);
+  const diff = difficultyById(opts.difficulty);
+  const diffMods = diff.mods;
+  const scenario = tl.scenarios ? (tl.scenarios.find(s => s.id === opts.scenarioId) || tl.scenarios[0]) : null;
+  const scMods = scenario ? scenario.mods || {} : {};
+  const playerIdx = opts.nationIdx ?? 0;
+  const real = tl.mapKind === 'real';
+
+  // ---- ملت‌ها ----
+  let defs;
+  if (real) {
+    defs = [...tl.nations, { ...OTHER_NATION, key: 'OTHER' }];
+  } else {
+    defs = NATION_DEFS.map((d, i) => ({ ...d, key: 'F' + i }));
+    if (scMods.allAggressive) defs = defs.map(d => ({ ...d, pers: 'aggressive' }));
+  }
+  const nations = defs.map((d, i) => ({
+    id: i, key: d.key, name: d.name, adj: d.adj, ruler: d.ruler, pers: d.pers, desc: d.desc,
     c1: d.c1, c2: d.c2, flag: d.flag,
-    player: i === playerIdx, alive: true,
-    capital: map.capitals[i],
-    treasury: 2500 + ((seed >> i) % 7) * 400,
+    player: i === playerIdx, alive: true, playable: real ? i < tl.nations.length : true,
+    capital: 0,
+    treasury: Math.round((2500 + ((seed >> i) % 7) * 400) * (diffMods.startMoney || 1) * (scMods.treasuryMult || 1)),
     taxLvl: (d.pers === 'aggressive') ? 3 : 2,
-    laws: {
-      tax: pick(rng, ['poll', 'land']),
-      labor: rng() < 0.55 ? 'serf' : 'poor',
-      gov: i % 4 === 1 ? 'constit' : 'absolut',
-    },
+    laws: d.laws || defaultLaws(tlId, d.pers, mulberry32(seed ^ (i * 7919 + 13))),
     enact: null,
     groups: {},
     tech: [], res: { key: null, pts: 0 },
@@ -28,26 +50,32 @@ export function newGame(seed, playerIdx) {
     improvementCd: {}, dowCd: 0, revoltCd: 0, buildCd: 0,
     battalions: 0,
     prestige: 0, gdp: 300, solScore: 10,
-    literacy: 11 + Math.floor(rng() * 8) + (i % 4 === 1 ? 6 : 0),
+    literacy: real ? 30 + Math.floor(Math.random() * 25) : 11 + Math.floor(Math.random() * 8) + (i % 4 === 1 ? 6 : 0),
     missionsDone: [], annexed: 0,
-    electionCd: 208 + Math.floor(rng() * 60),
+    electionCd: 208 + Math.floor(Math.random() * 60),
     warExh: 0,
     personality: null, persMods: {},
-    ai: { nextThink: Math.floor(rng() * 8) },
+    ai: { nextThink: Math.floor(Math.random() * 8) },
     boom: 0, strike: 0,
   }));
+
+  // ---- نقشه ----
+  const map = real ? genRealMap(seed, tl) : genMap(seed);
+  for (let i = 0; i < nations.length; i++) nations[i].capital = map.capitals[i] ?? 0;
+
+  const rng = mulberry32(seed ^ 0x9e3779b9);
   for (const n of nations) for (const m of nations) {
     if (n.id === m.id) continue;
     n.rel[m.id] = Math.round((rng() - 0.42) * 55);
   }
 
-  // استان‌ها: جمعیت + ساختمان‌ اولیه بر اساس زمین و شخصیت ملت
+  // ---- استان‌ها: جمعیت + ساختمان اولیه ----
   for (const p of map.provs) {
     const n = nations[p.owner];
     const richness = p.res.farm * 0.65 + p.res.wood * 0.15 + (p.res.iron + p.res.coal) * 0.25 + (p.coast ? 0.2 : 0);
-    const base = 22000 + richness * 150000 + rng() * 26000;
+    const base = 22000 + richness * 150000 + (map.real ? p.cells.length * 900 : 0) + rng() * 26000;
     const isCap = p.id === n.capital;
-    const pop = Math.round(base * (isCap ? 1.9 : 1) * (n.pers === 'peaceful' ? 1.15 : 1));
+    const pop = Math.round(base * (isCap ? 1.9 : 1) * (n.pers === 'peaceful' ? 1.15 : 1) * (diffMods.popGrowth || 1) * 0.85);
     p.provPops = pop;
     p.pops = {
       farmer: pop * 0.52, worker: pop * 0.11, clerk: pop * 0.035,
@@ -56,7 +84,6 @@ export function newGame(seed, playerIdx) {
     };
     p.bld = {};
     for (const k in BUILDINGS) p.bld[k] = 0;
-    // ساختمان‌های آغازین
     p.bld.farm = clamp(Math.round(p.res.farm * 3 + rng() * 2), 0, 5);
     if (p.res.wood > 0.4) p.bld.lumber = rng() < 0.8 ? 1 : 2;
     if (p.res.iron > 0.4) p.bld.iron_mine = rng() < 0.5 ? 1 : 2;
@@ -74,60 +101,90 @@ export function newGame(seed, playerIdx) {
       if (p.coast) p.bld.port = Math.max(p.bld.port, 2);
     } else if (rng() < 0.25) p.bld.barracks = 1;
     else if (rng() < 0.2) p.bld.textile = 1;
+    // سناریوی «عصر ماشین»: صنعت پیش‌ساخته
+    if (scMods.industry) {
+      if (isCap) { p.bld.textile = Math.max(p.bld.textile, 2); p.bld.tool_work = Math.max(p.bld.tool_work, 1); p.bld.steel_mill = 1; p.bld.railway = 1; }
+      if (p.res.coal > 0.4) p.bld.coal_mine = Math.max(p.bld.coal_mine, 1);
+      if (p.res.iron > 0.4) p.bld.iron_mine = Math.max(p.bld.iron_mine, 1);
+    }
     p.queue = [];
-    p.unrest = 5 + rng() * 12;
+    p.unrest = 5 + rng() * 12 + (diffMods.unrestBias || 0);
     p.sol = 12 + richness * 8;
-    p.employ = {}; // پر می‌شود در sim
+    p.employ = {};
     p.devast = 0;
   }
 
-  // گردان‌های آغازین از روی پادگان‌های موجود
+  // گردان‌های آغازین از روی پادگان‌ها
   for (const n of nations) {
     let caps = 0;
     for (const p of map.provs) if (p.owner === n.id) caps += p.bld.barracks || 0;
     n.battalions = Math.max(1, Math.round(caps * (n.pers === 'aggressive' ? 1 : 0.6)));
   }
 
-  // ---- خانواده‌ی سلطنتی بازیکن ----
-  const fam = [
-    { id: 1, role: 'father', name: nations[playerIdx].ruler, avatar: FAMILY_PORTRAITS.father, rel: 72, age: 58, alive: true, traits: ['خویشتن‌دار', 'جهان‌دیده'], talkCd: 0, hist: [] },
-    { id: 2, role: 'mother', name: 'ملکه ' + pick(rng, ['جهان‌بانو', 'ماه‌دخت', 'تاج‌الملوک', 'شیرین‌بانو']), avatar: FAMILY_PORTRAITS.mother, rel: 80, age: 52, alive: true, traits: ['مهربان', 'تدبیرگر'], talkCd: 0, hist: [] },
-    { id: 3, role: 'brother', name: 'شاهزاده ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
-    { id: 4, role: 'sister', name: 'شاهزده ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
-    { id: 5, role: 'vizier', name: 'وزیر ' + pick(rng, ['میرزا کاظم', 'میرزا حسن', 'میرزا تقی', 'میرزا ابوالقاسم']), avatar: FAMILY_PORTRAITS.vizier, rel: 68, age: 55, alive: true, traits: ['با تجربه', 'وفادار'], talkCd: 0, hist: [] },
-  ];
+  // ---- خانواده‌ی سلطنتی (فقط خط زمانی ویکتوریا) ----
+  const fam = [];
+  if (tlId === 'victoria') {
+    fam.push(
+      { id: 1, role: 'father', name: nations[playerIdx].ruler, avatar: FAMILY_PORTRAITS.father, rel: 72, age: 58, alive: true, traits: ['خویشتن‌دار', 'جهان‌دیده'], talkCd: 0, hist: [] },
+      { id: 2, role: 'mother', name: 'ملکه ' + pick(rng, ['جهان‌بانو', 'ماه‌دخت', 'تاج‌الملوک', 'شیرین‌بانو']), avatar: FAMILY_PORTRAITS.mother, rel: 80, age: 52, alive: true, traits: ['مهربان', 'تدبیرگر'], talkCd: 0, hist: [] },
+      { id: 3, role: 'brother', name: 'شاهزاده ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
+      { id: 4, role: 'sister', name: 'شاهزاده ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
+      { id: 5, role: 'vizier', name: 'وزیر ' + pick(rng, ['میرزا کاظم', 'میرزا حسن', 'میرزا تقی', 'میرزا ابوالقاسم']), avatar: FAMILY_PORTRAITS.vizier, rel: 68, age: 55, alive: true, traits: ['با تجربه', 'وفادار'], talkCd: 0, hist: [] },
+    );
+  }
 
   const state = {
     v: 3, seed, week: 0, tickN: 0,
     speed: 2, paused: true,
     playerId: playerIdx,
+    timelineId: tlId, scenarioId: scenario ? scenario.id : null,
+    difficulty: diff.id, diffMods,
+    tl, startYear: tl.year, endYear: tl.endYear,
+    tlGenNames: tl.genNames,
     map, nations,
     goods: {},
     armies: [], nextArmyId: 1,
     wars: [], nextWarId: 1,
     battles: [], nextBattleId: 1,
-    fx: [],            // افکت‌های موقت رندر (runtime)
+    fx: [],
     log: [],
     pendingEvent: null,
     eventCd: 20,
-    evCd: {},          // خنثی‌سازی ضدتکرار رویدادها
-    evSeen: {},        // تعداد تکرار هر رویداد
-    scheduled: [],     // اتفاق‌های زمان‌بندی‌شده (جنگ اولتیماتوم و…)
+    evCd: {}, evSeen: {},
+    scheduled: [],
     family: fam,
     nextFamId: 6,
-    phase: 'prologue', // prologue → ruling
+    phase: real ? 'ruling' : 'prologue',
     prologue: { step: 0, traits: {}, nextWk: 0 },
-    era: 0,
+    era: real ? 3 : 0,
     stats: { weeks: 0, gdp: {}, sol: {} },
     victory: false, defeat: false, gameOver: false,
+    tutorialDone: false,
   };
   for (const g in GOODS) {
     state.goods[g] = { price: GOODS[g].base * (0.9 + rng() * 0.2), s: 0, d: 0, hist: [] };
-    state.stats.gdp[nations[0].id] = [];
   }
   for (const n of nations) { state.stats.gdp[n.id] = []; state.stats.sol[n.id] = []; }
 
-  addLog(state, '📜', `بازی آغاز شد. شما فرمانروای ${nations[playerIdx].name} هستید.`);
+  // سناریوی «عصر ماشین»: پژوهش آغازین
+  if (scMods.researchStart) state.nations[playerIdx].res = { key: null, pts: scMods.researchStart };
+  // خطوط زمانی واقعی: فناوری‌های پایه‌ی دوره از پیش کشف‌شده‌اند
+  if (real) {
+    const baseTech = tlId === 'ww1' ? ['mechani', 'steam', 'railway', 'steel', 'rifling', 'artillery', 'logistics', 'banking', 'literacy', 'medicine']
+      : tlId === 'ww2' ? ['mechani', 'steam', 'railway', 'steel', 'assembly', 'rifling', 'artillery', 'conscript', 'logistics', 'trench', 'banking', 'literacy', 'medicine', 'romantik', 'chemical']
+      : ['mechani', 'steam', 'railway', 'steel', 'assembly', 'electric', 'rifling', 'artillery', 'conscript', 'logistics', 'trench', 'steelnavy', 'banking', 'literacy', 'medicine', 'romantik', 'suffrage', 'welfare', 'chemical', 'drills', 'journalism', 'academy'];
+    state.nations[playerIdx].tech = baseTech.slice();
+    for (const n of state.nations) if (!n.player) n.tech = baseTech.slice(0, Math.max(4, Math.floor(baseTech.length * (0.6 + Math.random() * 0.4))));
+  }
+
+  // رویداد آغازین خطوط زمانی واقعی
+  if (real && tl.intro) {
+    state.pendingEvent = tl.intro;
+    state.pausedBeforeEvent = true;
+    state.paused = true;
+  }
+
+  addLog(state, '📜', `بازی آغاز شد. شما فرمانروای ${nations[playerIdx].name} هستید (خط زمانی: ${tl.name}).`);
   return state;
 }
 
@@ -140,6 +197,7 @@ export function addLog(state, icon, text) {
 export function saveGame(state) {
   const dyn = {
     v: state.v, seed: state.seed, week: state.week, playerId: state.playerId,
+    timelineId: state.timelineId, scenarioId: state.scenarioId, difficulty: state.difficulty,
     nations: state.nations.map(n => ({
       taxLvl: n.taxLvl, laws: n.laws, enact: n.enact, groups: n.groups, tech: n.tech,
       res: n.res, rel: n.rel, pacts: n.pacts, wars: n.wars, treasury: n.treasury,
@@ -169,7 +227,12 @@ export function hasSave() { return !!localStorage.getItem(SAVE_KEY); }
 export function loadGame() {
   const dyn = JSON.parse(localStorage.getItem(SAVE_KEY));
   if (!dyn) return null;
-  const state = newGame(dyn.seed, dyn.playerId);
+  const state = newGame(dyn.seed, {
+    timelineId: dyn.timelineId || 'victoria',
+    scenarioId: dyn.scenarioId || null,
+    difficulty: dyn.difficulty || 'normal',
+    nationIdx: dyn.playerId,
+  });
   state.week = dyn.week;
   dyn.nations.forEach((d, i) => Object.assign(state.nations[i], d));
   dyn.provs.forEach((d, i) => Object.assign(state.map.provs[i], d));
