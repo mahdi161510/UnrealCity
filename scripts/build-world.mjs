@@ -245,9 +245,32 @@ for (const i of landCells) {
   cells[i] = bc;
 }
 
-// شهرها → سلول
-const cityCells = CITIES.map(c => ({ name: c[0], i: Math.round(lat2y(c[1])) * GW + Math.round(lon2x(c[2])) }))
-  .filter(c => c.i >= 0 && c.i < GW * GH && cells[c.i] >= 0);
+// شهرها → سلول (سلولِ حاوی نقطه = floor؛ اگر روی دریا افتاد → نزدیک‌ترین خشکی با اولویت منطقه‌ی پرجمعیت‌تر)
+const cityCells = [];
+const seenCity = new Set();
+for (const [name, lat, lon] of CITIES) {
+  if (seenCity.has(name)) continue;
+  seenCity.add(name);
+  const tx = Math.floor(lon2x(lon)), ty = Math.floor(lat2y(lat));
+  let best = -1, bd = 1e9, bc = -1;
+  for (let r = 0; r <= 7 && best < 0; r++) {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = tx + dx, y = ty + dy;
+      if (x < 0 || x >= GW || y < 0 || y >= GH) continue;
+      const idx = y * GW + x;
+      if (cells[idx] < 0) continue;
+      const d = dx * dx + dy * dy;
+      if (d > bd) continue;
+      let cnt = 0;
+      for (let yy = y - 2; yy <= y + 2; yy++) for (let xx = x - 2; xx <= x + 2; xx++) {
+        if (xx >= 0 && xx < GW && yy >= 0 && yy < GH && cells[yy * GW + xx] === cells[idx]) cnt++;
+      }
+      if (d < bd || cnt > bc) { bd = d; best = idx; bc = cnt; }
+    }
+  }
+  if (best >= 0) cityCells.push({ name, i: best });
+}
 
 // ---------- RLE ----------
 let rle = '';
