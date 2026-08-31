@@ -6,6 +6,7 @@ import { clamp, lerp, pick } from './utils.js';
 import { GOODS } from './data.js';
 import { cabinetMods } from './characters.js';
 import { blockadeLevel, navalStrength } from './naval.js';
+import { projectMods } from './projects.js';
 
 // ---------------- شرکت‌های بازرگانی ----------------
 // شرکت‌ها را با پول می‌سازید؛ هر یک روی کالایی تمرکز دارد و سود می‌دهد.
@@ -73,7 +74,11 @@ export function tradeCapacity(S, n) {
     rails += (p.bld.railway || 0);
   }
   const cm = cabinetMods(S, n), co = companyMods(S, n);
-  return ports * 2 + rails * 0.6 + 2 + (co.infra || 0) + (cm.prestige || 0) * 0.05;
+  const base = ports * 2 + rails * 0.6 + 2 + (co.infra || 0) + (cm.prestige || 0) * 0.05;
+  // بونوس تجاری آرمان ملی و پروژه‌های ملی (راه‌آهن، ناوگان، بانک بزرگ)
+  const pm = projectMods(S, n);
+  const cap = (n.ideas?.mods?.tradeCap || 0) + (pm.tradeCap || 0);
+  return base * (1 + cap);
 }
 
 export function openRoute(S, n, partnerId, good) {

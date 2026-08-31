@@ -5,6 +5,7 @@
 
 import { clamp, lerp, pick, mulberry32 } from './utils.js';
 import { cabinetMods } from './characters.js';
+import { projectMods } from './projects.js';
 
 export const REBEL = -2;
 
@@ -212,7 +213,8 @@ export function simSociety(S) {
 
     // ---- ثبات ----
     const avgUnrest = own.reduce((a, p) => a + p.unrest, 0) / own.length;
-    let stabT = 62 + (cm.stability || 0) * 2.2 - avgUnrest * 0.62
+    const pmS = projectMods(S, n);
+    let stabT = 62 + (cm.stability || 0) * 2.2 + (pmS.stability || 0) * 30 - avgUnrest * 0.62
       + ((n.legitimacy - 55) * 0.26) - (n.warExh || 0) * 0.16
       - (n.civilWar ? 30 : 0);
     // جنبش‌های رادیکال ثبات را می‌خورند

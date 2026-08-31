@@ -1,8 +1,10 @@
 // ---------- شبیه‌سازی هفتگی: اقتصاد، جمعیت، سیاست، جنگ، رویدادها، AI ----------
 import { GOODS, BUILDINGS, NEEDS, POP_CLASSES, TECHS, LAWS, GROUPS, TAX_LEVELS, TERRAIN, EVENTS, NATION_DEFS, MISSIONS, ELECTION_EVENT, ERAS, ERA_WAGES, eraOfWeek, PERSONALITIES, PROLOGUE, FAMILY_PORTRAITS, SON_NAMES, DAUGHTER_NAMES, GEN_NAMES, DIALOGUES, REL_REACTIONS, TALK_KEYWORDS } from './data.js';
-import { clamp, lerp, mulberry32, pick } from './utils.js';
+import { clamp, lerp, mulberry32, pick, fd, fd1, fMoney } from './utils.js';
 import { addLog } from './state.js';
 import { findPath } from './mapgen.js';
+import { projectMods, simProjects, simDecrees, aiProjects } from './projects.js';
+import { addInfamy, simInfamy, infamyMods, coalitionAgainst } from './infamy.js';
 import { cabinetMods, charById, traitMods, commanderPower, addXP, stepCharacters, charsOf, makeChar, killChar, CABINET_KEYS } from './characters.js';
 import { simNaval, navyUpkeep, fleetsOf, blockadeLevel, navalStrength, SHIP_CLASSES, initNavy } from './naval.js';
 import { simEspionage, aiEspionage } from './espionage.js';
@@ -89,8 +91,10 @@ export function techMods(state, n) {
     const imods = n.ideas?.mods || {};
     const cmods = councilMods(state, n);
     const xmods = corruptionMods(n);
+    const pmods = projectMods(state, n);
+    const nmods = infamyMods(n);
     const all = {};
-    for (const src of [rmods, fmods, wmods, smods, imods, cmods, xmods]) for (const k in src) { if (k.startsWith('_')) continue; all[k] = (all[k] || 0) + src[k]; }
+    for (const src of [rmods, fmods, wmods, smods, imods, cmods, xmods, pmods, nmods]) for (const k in src) { if (k.startsWith('_')) continue; all[k] = (all[k] || 0) + src[k]; }
     m.urbanOut += (all.urbanOut || 0);
     m.armyMor  = (m.armyMor || 0) + (all.armyMor || 0);
     m.taxMult   += (all.taxIncome || 0) + (all.admin || 0) * 0.4;
@@ -109,6 +113,8 @@ export function techMods(state, n) {
     m.build     -= (all.buildCost || 0);
     m._royal = all;
   }
+  // فرمان صنعتی: جهش موقت تولید کارخانه‌ها
+  if (n.industBoost > 0) m.urbanOut += 0.25;
   // ---- ثبات و مشروعیت: کشور بی‌ثبات، بی‌بازده است ----
   const stab = n.stability ?? 50;
   if (stab < 40) { const pen = (40 - stab) / 100; m.allOut -= pen * 0.35; m.taxMult -= pen * 0.4; }
@@ -496,7 +502,21 @@ export function tick(state) {
       const targetLit = clamp(10 + (unis / Math.max(myProvs, 1)) * 7 + (n.tech.includes('literacy') ? 12 : 0) + (n.tech.includes('suffrage') ? 6 : 0) + (tmL.litTarget || 0), 6, 95);
       n.literacy = clamp((n.literacy || 12) + clamp(targetLit - (n.literacy || 12), -1, 1) * 0.012, 4, 95);
     }
-    if (!n.res.key) continue;
+    // آزمایشگاه بیکار: انتخاب موضوع پژوهش در منطق AI است، پس بازیکنی که
+    // دستی انتخاب نکند تا ابد صفر فناوری می‌ماند در حالی که رقبا به ۲۲ می‌رسند.
+    // طبق تصمیم کاربر خودکار انتخاب نمی‌کنیم، فقط پیوسته هشدار می‌دهیم.
+    if (!n.res.key) {
+      if (n.player) {
+        n.idleResWk = (n.idleResWk || 0) + 1;
+        // نخستین هشدار پس از ۴ هفته، سپس هر ۲۶ هفته تا وقتی بیکار است
+        if (n.idleResWk === 4 || (n.idleResWk > 4 && n.idleResWk % 26 === 0)) {
+          pushAlert(S, '🔬', 'آزمایشگاه بیکار است! موضوع پژوهش انتخاب کنید.');
+          addLog(S, '🔬', 'هیچ پژوهشی در جریان نیست؛ رقبا جلو می‌افتند.');
+        }
+      }
+      continue;
+    }
+    if (n.player) n.idleResWk = 0;
     const tm = techMods(S, n);
     let unis = 0;
     for (const p of S.map.provs) if (p.owner === n.id && p.controller === n.id) unis += p.bld.university || 0;
@@ -560,6 +580,9 @@ export function tick(state) {
   simDynasty(state);
   simWonders(state);
   simCouncil(state);
+  simProjects(state);
+  simDecrees(state);
+  simInfamy(state);
   if (state.week % 13 === 0) refreshGreatPowers(state);
   simCrises(state);
   resolveCrisisWars(state);
@@ -708,6 +731,7 @@ export function tick(state) {
       addLog(S, '🗳️', 'انتخابات عمومی آغاز شد.');
     }
   }
+  checkStateOfEmergency(S);
   checkMissions(S);
   const endWk = (S.endYear - (S.startYear || 1836)) * 52;
   if (!S.gameOver && S.week >= endWk) {
@@ -855,6 +879,57 @@ export function avgSol(S, nid) {
 function nationPopProv(p) { return Object.values(p.pops).reduce((a, b) => a + b, 0); }
 export function ranking(S) { return S.nations.slice().sort((a, b) => b.prestige - a.prestige); }
 function pushAlert(S, icon, text) { S.pendingAlerts = S.pendingAlerts || []; S.pendingAlerts.push({ icon, text, w: S.week }); }
+
+// ================= وضعیت بحرانی =================
+// پیش‌تر تنها راه باخت، از دست دادن همه‌ی استان‌ها بود. در آزمون دیدیم
+// کشوری با ۸/۸ استان اشغالی، ناآرامی ۱۰۰، ویرانی ۹.۵ و ثبات ۰ همچنان
+// «زنده» شمرده می‌شد و بازی هیچ هشداری نمی‌داد. این تابع هم بازخورد
+// تشدیدشونده می‌دهد و هم فروپاشی واقعی را پایان بازی اعلام می‌کند.
+export function emergencyReport(S) {
+  const n = S.nations[S.playerId];
+  if (!n || !n.alive) return null;
+  const mine = S.map.provs.filter(p => p.owner === n.id);
+  if (!mine.length) return null;
+  const occ = mine.filter(p => p.controller !== n.id).length;
+  const occFrac = occ / mine.length;
+  const unrest = mine.reduce((a, p) => a + (p.unrest || 0), 0) / mine.length;
+  const devast = mine.reduce((a, p) => a + (p.devast || 0), 0) / mine.length;
+  const stab = n.stability ?? 50, legit = n.legitimacy ?? 60;
+  const woes = [];
+  if (occFrac >= 0.5) woes.push({ k: 'occ', sev: occFrac >= 0.9 ? 2 : 1, txt: `${fd(occ)} از ${fd(mine.length)} استان در اشغال دشمن است` });
+  if (unrest >= 70) woes.push({ k: 'unrest', sev: unrest >= 90 ? 2 : 1, txt: `ناآرامی به ${fd(Math.round(unrest))} رسیده` });
+  if (stab <= 12) woes.push({ k: 'stab', sev: stab <= 5 ? 2 : 1, txt: `ثبات ${fd(Math.round(stab))} است` });
+  if (devast >= 6) woes.push({ k: 'devast', sev: devast >= 8.5 ? 2 : 1, txt: `ویرانی ${fd1(devast)} از ۱۰` });
+  if (n.treasury < -4000) woes.push({ k: 'debt', sev: n.treasury < -12000 ? 2 : 1, txt: `بدهی ${fMoney(Math.abs(n.treasury))}` });
+  if (legit <= 15) woes.push({ k: 'legit', sev: 1, txt: `مشروعیت ${fd(Math.round(legit))}` });
+  const score = woes.reduce((a, w) => a + w.sev, 0);
+  return { woes, score, occFrac, unrest, devast, stab, legit, provs: mine.length };
+}
+function checkStateOfEmergency(S) {
+  if (S.gameOver || S.defeat) return;
+  const r = emergencyReport(S);
+  if (!r) return;
+  const n = S.nations[S.playerId];
+  const critical = r.score >= 4;
+  S.emergency = critical ? { score: r.score, woes: r.woes.map(w => w.txt) } : null;
+  if (critical) {
+    n.emergWk = (n.emergWk || 0) + 1;
+    // هشدار در آغاز، سپس هر ۱۳ هفته با لحن تندتر
+    if (n.emergWk === 1 || n.emergWk % 13 === 0) {
+      const yrs = (n.emergWk / 52).toFixed(1);
+      pushAlert(S, '🚨', `کشور در آستانه‌ی فروپاشی: ${r.woes[0].txt}`);
+      addLog(S, '🚨', `وضعیت بحرانی (${fd1(+yrs)} سال): ${r.woes.map(w => w.txt).join('، ')}`);
+    }
+    // فروپاشی کامل: چهار سال بحران بی‌وقفه با شدت بالا
+    if (n.emergWk >= 208 && r.score >= 6) {
+      S.defeat = true; S.paused = true;
+      addLog(S, '💀', 'دولت فروپاشید؛ کشور در هرج‌ومرج فرو رفت.');
+    }
+  } else if (n.emergWk) {
+    if (n.emergWk >= 13) { pushAlert(S, '🕊️', 'بحران فروکش کرد؛ کشور از پرتگاه بازگشت.'); addLog(S, '🕊️', 'وضعیت بحرانی پایان یافت.'); }
+    n.emergWk = 0;
+  }
+}
 function n_boomTick() { return false; }
 
 // ================= ارتش‌ها =================
@@ -1252,6 +1327,8 @@ export function endWar(S, w, kind) {
     // پاک شدن صاحب قبلی در صورت نبود استان
     A.prestige += 6;
     A.annexed = (A.annexed || 0) + 1;
+    // ضمیمه‌کردن خاک دیگران گران‌ترین کار برای آبروست
+    addInfamy(S, A, 13, `ضمیمه‌ی ${p.name}`);
     text = `${A.name} استان ${p.name} را از ${D.name} ضمیمه کرد.`;
     addLog(S, '🏴‍☠️', text);
     const rep = Math.min(Math.max(0, D.treasury) * 0.5, Math.max(0, D.gdp) * 1.2);
@@ -1260,6 +1337,7 @@ export function endWar(S, w, kind) {
   } else if (kind === 'enforce') {
     const rep = Math.min(Math.max(0, D.treasury) * 0.5, Math.max(0, D.gdp) * 1);
     D.treasury -= rep; A.treasury += rep;
+    addInfamy(S, A, 2, 'تحمیل غرامت');
     text = `${D.name} به ${A.name} غرامت پرداخت کرد.`;
     addLog(S, '🕊️', text);
   } else {
@@ -1297,6 +1375,7 @@ function thinkAI(S, n) {
   const aggr = S.diffMods?.aiAggr || 1;
   const smart = 2.2 - thinkBase * 0.2; // ضریب هوشمندی (معمولی = ۱)
 
+  aiProjects(S, n);
   // پژوهش
   if (!n.res.key) {
     const pref = n.pers === 'industrial' ? 'ind' : n.pers === 'aggressive' ? 'mil' : n.pers === 'trader' ? 'ind' : n.pers === 'peaceful' ? 'soc' : (rnd() < 0.5 ? 'ind' : 'mil');
@@ -1368,6 +1447,18 @@ function thinkAI(S, n) {
           // قدرت‌های بزرگ نخست بحران می‌سازند، نه جنگ ناگهانی
           if (!maybeCrisis(S, n, P)) declareWar(S, n.id, P.id, borderProv.id);
         }
+      }
+    }
+  }
+  // ---- ائتلاف مهار: عضو ائتلاف به بدنام‌ترین کشور حمله می‌کند ----
+  // این دندانِ سامانه‌ی آبروست: توسعه‌طلبی بی‌مهار پیامد نظامی دارد.
+  if (!n.wars.length && rnd() < 0.10 * aggr) {
+    const co = (S.coalitions || []).find(c => !c.done && c.members.includes(n.id));
+    if (co) {
+      const tgt = S.nations[co.target];
+      if (tgt?.alive && !atWar(S, n.id, tgt.id)) {
+        const bp = S.map.provs.find(p => p.owner === tgt.id && p.adj.some(q => S.map.provs[q].owner === n.id));
+        if (bp) { declareWar(S, n.id, tgt.id, bp.id); return; }
       }
     }
   }
@@ -1544,6 +1635,7 @@ export function declareWar(S, a, d, goal) {
   A.dowCd = S.week + 104;
   // اتحادهای متجاوز باطل
   if (A.pacts[d]) { delete A.pacts[d]; delete D.pacts[a]; }
+  addInfamy(S, A, 3, `اعلان جنگ به ${D.name}`);
   addLog(S, '🔥', `${A.name} به ${D.name} اعلام جنگ داد! هدف: استان ${S.map.provs[goal]?.name ?? '—'}`);
   if (d === S.playerId) {
     pushDipOffer(S, a, 'wardeclared', w.id);

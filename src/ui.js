@@ -6,7 +6,9 @@ import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
 import { REBEL } from './sim.js';
 import { panelCourt, panelNavy, panelSpy, panelSociety, panelTrade } from './panels2.js';
-import { panelDynasty, panelWorld, panelPowers, panelCouncil } from './panels3.js';
+import { panelDynasty, panelWorld, panelPowers, panelCouncil, panelProjects } from './panels3.js';
+import { PROJECTS, DECREES, startProject, cancelProject, issueDecree, pickEnding } from './projects.js';
+import { infamyLabel, INF_WATCH, INF_COALITION, coalitionAgainst } from './infamy.js';
 import { SEATS, SEAT_KEYS, seatScore, candidatesFor, appoint, dismiss, educateHeir, purgeCorruption } from './council.js';
 import { rulerOf, heirOf, royalById, recalcHeir, arrangeMarriage, SUCCESSION_LAWS } from './dynasty.js';
 import { startWonder, WONDERS, LANDMARKS, RARE_RES, regionOf } from './world.js';
@@ -258,6 +260,18 @@ export function refreshTopbar() {
   money.classList.toggle('pos', pn.treasury >= 0);
   document.getElementById('tb-gdp').innerHTML = `🏭 ${fK(pn.gdp || 0)}`;
   document.getElementById('tb-prestige').innerHTML = `👑 ${fd(pn.prestige)}`;
+  // بدنامی: تنها وقتی نشان داده می‌شود که جهان نگران شده باشد
+  const infEl = document.getElementById('tb-infamy');
+  if (infEl) {
+    const inf = pn.infamy || 0;
+    if (inf >= INF_WATCH) {
+      const L = infamyLabel(inf);
+      infEl.style.display = '';
+      infEl.className = 'stat ' + L.cls;
+      infEl.innerHTML = `😠 ${fd(Math.round(inf))}`;
+      infEl.title = `بدنامی — ${L.txt}. ضمیمه‌کردن خاک دیگران آبرو می‌برد؛ در ${fd(INF_COALITION)} ائتلاف مهار بسته می‌شود.`;
+    } else infEl.style.display = 'none';
+  }
   document.getElementById('tb-pop').innerHTML = `👥 ${fK(SIM.nationPop(S, pn.id))}`;
   document.getElementById('tb-innov').innerHTML = `🎓 ${pn.res && pn.res.key ? fd1(pn.res.pts) + '/' + fd(TECHS[pn.res.key].cost) : '—'}`;
   document.getElementById('tb-lit').innerHTML = `📖 ${fd(Math.round(pn.literacy || 0))}٪`;
@@ -339,6 +353,14 @@ export function refreshDockBadges() {
   const dip = document.querySelector('#dock [data-panel="diplomacy"]');
   const n = (S.dipOffers || []).length;
   dip.dataset.badge = n ? fd(n) : '';
+  // آزمایشگاه بیکار: نشان هشدار روی دکمه‌ی فناوری
+  const tech = document.querySelector('#dock [data-panel="tech"]');
+  if (tech) {
+    const pn = S.nations?.[S.playerId];
+    const idle = pn && !pn.res?.key;
+    tech.dataset.badge = idle ? '!' : '';
+    tech.classList.toggle('urgent', !!idle);
+  }
 }
 
 // ================== پنل‌ها ==================
@@ -370,6 +392,7 @@ export function renderPanel() {
     council: () => panelCouncil(S, UI, R),
     world:   () => panelWorld(S, UI, R),
     powers:  () => panelPowers(S, UI, R),
+    projects: () => panelProjects(S, UI, R),
   };
   const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions, family: panelFamily, ...P2 }[UI.panel];
   if (!fn) return;
@@ -572,7 +595,10 @@ function panelTech() {
       <div class="bar big"><i class="good" style="width:${clamp(pn.res.pts / t.cost * 100, 1, 100)}%"></i></div>
       <span class="dim">${fd1(pn.res.pts)} / ${fd(t.cost)} — نوآوری ${fd1(pn.innov || 4)} در هفته</span></div>`;
   } else {
-    cur = `<div class="cur-res dim">⚠️ پژوهشی فعال نیست — یک فناوری برگزینید (نوآوری ${fd1(pn.innov || 4)} در هفته)</div>`;
+    const yrs = Math.floor((pn.idleResWk || 0) / 52);
+    cur = `<div class="warn-box"><b>⚠️ آزمایشگاه بیکار است</b><br>
+      <span class="dim">هیچ پژوهشی در جریان نیست${yrs >= 1 ? ` — <b class="bad">${fd(yrs)} سال</b> است که هدر می‌رود` : ''}.
+      نوآوری ${fd1(pn.innov || 4)} در هفته پشت درِ بسته می‌ماند. از پایین یک فناوری برگزینید.</span></div>`;
   }
   let cols = '';
   for (const br in TECH_BRANCHES) {
@@ -654,6 +680,18 @@ function panelPolitics() {
 function panelDiplomacy() {
   const pn = S.nations[S.playerId];
   let html = '';
+  // ائتلاف مهار: مهم‌ترین خبر دیپلماتیک، پس بالای همه
+  const co = coalitionAgainst(S, pn.id);
+  if (co) {
+    const names = co.members.map(id => esc(S.nations[id].name)).join('، ');
+    html += `<div class="warn-box"><b>⚔️ ائتلاف مهار علیه شما</b><br>
+      <span class="dim">${fd(co.members.length)} کشور علیه شما هم‌پیمان شده‌اند: ${names}.<br>
+      تا وقتی بدنامی‌تان زیر ${fd(55)} نیاید این ائتلاف پابرجاست. از ضمیمه‌کردن خاک تازه بپرهیزید.</span></div>`;
+  } else if ((pn.infamy || 0) >= INF_WATCH) {
+    const L = infamyLabel(pn.infamy);
+    html += `<div class="hint"><b>😠 بدنامی ${fd(Math.round(pn.infamy))} — ${L.txt}</b><br>
+      <span class="dim">جهان رفتار شما را زیر نظر دارد. در ${fd(INF_COALITION)} ائتلاف مهار بسته می‌شود.</span></div>`;
+  }
   // پیشنهادها
   const offers = (S.dipOffers || []).filter(o => o.kind !== 'wardeclared');
   if (offers.length) {
@@ -1241,6 +1279,32 @@ function doAction(act, b) {
       toast(r.ok ? '📚' : '⛔', r.ok ? 'استاد تازه گمارده شد' : r.why);
       break;
     }
+    case 'proj-start': {
+      const k = b.dataset.k;
+      const r = startProject(S, pn, k);
+      toast(r.ok ? '🏗️' : '⛔', r.ok ? `${PROJECTS[k].name} آغاز شد` : r.why);
+      renderPanel();
+      break;
+    }
+    case 'proj-cancel': {
+      const k = b.dataset.k;
+      confirmBox(`لغو ${PROJECTS[k].name}؟`, 'تنها ۳۵٪ از هزینه‌ی پرداخت‌شده بازمی‌گردد.', () => {
+        const r = cancelProject(S, pn, k);
+        toast(r.ok ? '🚧' : '⛔', r.ok ? `لغو شد؛ ${fMoney(r.refund)} بازگشت` : r.why);
+        renderPanel();
+      });
+      break;
+    }
+    case 'decree': {
+      const k = b.dataset.k;
+      const D = DECREES[k];
+      confirmBox(`${D.icon} ${D.name}`, `${D.desc}<br><br>هزینه: <b>${fMoney(D.cost)}</b> — تا ${fd(Math.round(D.cd / 52))} سال دوباره ممکن نیست.`, () => {
+        const r = issueDecree(S, pn, k);
+        toast(r.ok ? D.icon : '⛔', r.ok ? r.msg : r.why);
+        renderPanel(); refreshTopbar();
+      });
+      break;
+    }
     case 'plot-arrest': {
       if (!pn.plot) break;
       const head = royalById(S, pn.plot.headId);
@@ -1634,20 +1698,41 @@ function checkEnd() {
   if (S.gameOver) {
     const rk = SIM.ranking(S).filter(n2 => n2.alive);
     const rank = rk.findIndex(r => r.id === pn.id) + 1;
-    const win = rank === 1;
-    showEnd(win ? '👑' : '📜', win ? 'پیروزی بزرگ!' : 'پایان قرن', '');
+    // پایان بر پایه‌ی آنچه واقعاً ساخته‌اید، نه فقط رتبه
+    const vic = S.timelineId === 'victoria' ? pickEnding(S) : null;
+    showEnd(vic ? vic.icon : (rank === 1 ? '👑' : '📜'), vic ? vic.title : (rank === 1 ? 'پیروزی بزرگ!' : 'پایان قرن'), '');
     const rows = rk.map((n2, i) => {
       const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : fd(i + 1) + '.';
       return `<div class="endrow ${n2.player ? 'me' : ''}"><span>${medal}</span><b>${esc(n2.name)}</b><span class="dim">اعتبار ${fd(Math.round(n2.prestige))}</span></div>`;
     }).join('');
-    const endTxt = S.tl && S.tl.endText ? S.tl.endText : `سال ${fd(S.tl ? S.tl.endYear : 1900)} فرا رسید. رتبه نهایی شما: <b class="gold">${fd(rank)}</b> از ${fd(rk.length)}`;
+    const endTxt = vic ? `<div class="end-story">${vic.text}</div>${scorecard(vic.stats)}`
+      : (S.tl && S.tl.endText ? S.tl.endText : `سال ${fd(S.tl ? S.tl.endYear : 1900)} فرا رسید. رتبه نهایی شما: <b class="gold">${fd(rank)}</b> از ${fd(rk.length)}`);
     document.getElementById('end-text').innerHTML =
       `${endTxt}<div class="endtable">${rows}</div>`;
   } else if (S.defeat) {
-    showEnd('💀', 'سقوط', 'سرزمین شما به‌تمامی از دست رفت. تاریخ، صفحه‌تراش تازه‌ای خواهد یافت...');
+    const vic = S.timelineId === 'victoria' ? pickEnding(S) : null;
+    showEnd('💀', 'فروپاشی', '');
+    document.getElementById('end-text').innerHTML = vic
+      ? `<div class="end-story">${vic.text}</div>${scorecard(vic.stats)}`
+      : 'سرزمین شما به‌تمامی از دست رفت. تاریخ، صفحه‌تراش تازه‌ای خواهد یافت...';
   } else if (S.victory) {
     showEnd('👑', 'پیروزی!', `${pn.name} به بزرگ‌ترین قدرت جهان بدل شد!`);
   }
+}
+
+// کارنامه‌ی پایان قرن: چه ساختید، نه فقط چه رتبه‌ای گرفتید
+function scorecard(st) {
+  const row = (ic, label, val, hint) =>
+    `<div class="sc-row"><span>${ic} ${label}</span><b>${val}</b>${hint ? `<span class="dim">${hint}</span>` : ''}</div>`;
+  return `<div class="scorecard">
+    ${row('🏅', 'رتبه‌ی نهایی', fd(st.rank))}
+    ${row('🗺️', 'سهم از خاک جهان', fd(Math.round(st.provShare * 100)) + '٪', fd(st.provs) + ' استان')}
+    ${row('💰', 'سهم از اقتصاد جهان', fd(Math.round(st.gdpShare * 100)) + '٪')}
+    ${row('🎓', 'پیشرفت علمی', fd(Math.round(st.techShare * 100)) + '٪ پیشتاز', 'سواد ' + fd(Math.round(st.literacy)) + '٪')}
+    ${row('🏗️', 'پروژه‌های ملی', fd(st.projects))}
+    ${row('🗿', 'بناهای عظیم', fd(st.wonders))}
+    ${row('😠', 'بدنامی', fd(Math.round(st.infamy)), st.annexed ? fd(st.annexed) + ' ضمیمه' : 'بی‌ضمیمه')}
+  </div>`;
 }
 function showEnd(icon, title, text) {
   const m = document.getElementById('endscreen');
@@ -1702,6 +1787,10 @@ export function showHelp(inGame) {
       <li>📜 <b>ادعای ارضی:</b> با جعل سند، ادعای خود بر سرزمین دیگران را تقویت کنید تا جنگ‌هایتان مشروع‌تر باشد.</li>
       <li>🌐 <b>جهان داستان‌دار:</b> نقشه به <b>مناطق نام‌دار</b> تقسیم شده است. روی زمین <b>آثار باستانی</b> (جاده‌ی شاهی، آب‌راه کهن، دژ متروک…) و <b>منابع کمیاب</b> (سنگ گران‌بها، شوره، اسب اصیل…) پخش‌اند که بونوس واقعی می‌دهند. بخشی از جهان هم <b>سرزمین بکر</b> است با قبایل مستقل — با مأموریت استعماری بگیریدشان.</li>
       <li>🏯 <b>بناهای عظیم:</b> شش بنای عظیم در جهان هست و هر کدام تنها <b>یک بار</b> ساخته می‌شود. گران و چندساله‌اند، اما اعتبار و قدرت بزرگی می‌دهند. رقبا هم دنبالشان‌اند.</li>
+      <li>🏗️ <b>پروژه‌های ملی:</b> سرمایه‌گذاری‌های چندساله که خزانه‌ی راکد را به قدرت دائمی بدل می‌کنند — راه‌آهن، دانشگاه، ناوگان، اصلاح ارضی و… . قسط هفتگی می‌گیرند و هم‌زمان بیش از دو تا ممکن نیست.</li>
+      <li>📜 <b>فرمان‌های سلطنتی:</b> کنش‌های کم‌شمار و پرتأثیر با کول‌داون چندساله: بسیج عمومی، عفو عمومی، فرمان صنعتی، توزیع غله، حمایت از هنر.</li>
+      <li>😠 <b>بدنامی:</b> ضمیمه‌کردن خاک دیگران آبرو می‌برد. از ۳۰ جهان نگران می‌شود و در ۷۲ «ائتلاف مهار» علیه شما بسته می‌شود. بدنامی با زمان ترمیم می‌شود — فتح باید حساب‌شده باشد.</li>
+      <li>🚨 <b>وضعیت بحرانی:</b> اگر هم‌زمان از چند سو در خطر باشید هشدار می‌گیرید؛ چهار سال بحران شدید یعنی فروپاشی دولت و باخت.</li>
       <li>🏛️ <b>شورای درباری:</b> پنج کرسی (وزیر اعظم، خزانه‌دار، سپهسالار، قاضی‌القضات، رئیس تشریفات) را از میان شاهزادگان و سران خاندان‌ها پر می‌کنید. هر کرسی به‌اندازه‌ی مهارت شاغلش بونوس می‌دهد؛ کرسی خالی یعنی دیوانِ لنگ. انتصاب، وفاداری می‌خرد و عزل، کینه می‌سازد.</li>
       <li>💰 <b>فساد:</b> با مالیات سنگین، کشور بزرگ و شورای ناراست‌کردار رشد می‌کند و از درآمد می‌بلعد. <b>بازرسی</b> ارزان و بی‌دردسر است؛ <b>پاکسازی بزرگ</b> بسیار مؤثر ولی خاندان‌ها را خشمگین می‌کند.</li>
       <li>🕯️ <b>دسیسه:</b> بلندپایگانِ حیله‌گر و دل‌آزرده در سایه توطئه می‌چینند. اگر کشفش کنید می‌توانید دستگیر کنید یا محافظت را تشدید کنید؛ توطئه‌ی کشف‌نشده گاهی به ترور می‌انجامد. مثل بقیه‌ی درام‌ها، <b>کمیاب است و نتیجه‌ی بدحکومتی</b>.</li>
@@ -1859,6 +1948,28 @@ const TUTORIAL_PAGES = [
     'دو ابزار در برابر فساد دارید: «بازرسی» (پول می‌خواهد، بی‌دردسر) و «پاکسازی بزرگ» (بسیار مؤثر، اما خاندان‌ها کینه می‌گیرند و ناآرامی بالا می‌رود).',
     'بلندپایگان حیله‌گرِ دل‌آزرده توطئه می‌چینند. اگر کشفش کنید، می‌توانید دستگیرشان کنید یا محافظت را تشدید کنید. توطئه‌ی کشف‌نشده ممکن است به ترور فرمانروا یا وارث بینجامد.',
     'وارث را می‌توانید تربیت کنید (دیوان، رزم، دیپلماسی، نیرنگ). وارث ورزیده یعنی سلطنت آینده‌ی قدرتمندتر — و رقابت کمتر میان شاهزادگان.',
+  ] },
+  { icon: '🏗️', title: 'پروژه‌های ملی و فرمان‌های سلطنتی', items: [
+    'خزانه‌ی انباشته بی‌مصرف است؛ پروژه‌های ملی سرمایه‌گذاری‌های چندساله‌اند که کشور را برای همیشه دگرگون می‌کنند.',
+    'هشت پروژه در دسترس است: راه‌آهن سراسری، دانشگاه بزرگ، ناوگان اقیانوس‌پیما، اصلاح ارضی، بهداشت همگانی، زرادخانه‌ی سلطنتی، بانک بزرگ و شبکه‌ی تلگراف.',
+    'هزینه به‌صورت قسط هفتگی از خزانه کم می‌شود. اگر خزانه خالی شود کار می‌خوابد ولی از بین نمی‌رود؛ با پرشدن خزانه دوباره آغاز می‌شود.',
+    'هم‌زمان بیش از دو پروژه ممکن نیست. لغو پروژه تنها ۳۵٪ هزینه را بازمی‌گرداند، پس با حساب آغاز کنید.',
+    'برخی پروژه‌ها بهایی جز پول دارند: «اصلاح ارضی» روستا را آرام می‌کند اما زمین‌داران را به‌شدت می‌رنجاند.',
+    'فرمان‌های سلطنتی کنش‌های کم‌شمار و پرتأثیرند (بسیج عمومی، عفو عمومی، فرمان صنعتی، توزیع غله، حمایت از هنر) و هر کدام سال‌ها کول‌داون دارند.',
+  ] },
+  { icon: '😠', title: 'بدنامی و ائتلاف مهار', items: [
+    'هر بار خاک کشوری را ضمیمه کنید، بدنامی‌تان بالا می‌رود. اعلان جنگ و تحمیل غرامت هم بهای کوچک‌تری دارند.',
+    'بدنامی با گذر زمان ترمیم می‌شود؛ پس فتح پیوسته خطرناک است، اما فتحِ حساب‌شده با فاصله‌ی زمانی قابل مدیریت است.',
+    'از بدنامی ۳۰ جهان شما را زیر نظر می‌گیرد: دیپلماسی کند می‌شود، بازرگانان می‌گریزند و آبروی جهانی‌تان می‌ریزد.',
+    'در بدنامی ۷۲، اگر دست‌کم سه کشور از شما بترسند، «ائتلاف مهار» بسته می‌شود و اعضایش به شما اعلان جنگ می‌دهند.',
+    'ائتلاف تا وقتی بدنامی‌تان زیر ۵۵ نیاید پابرجاست. راه نجات: دست نگه‌دارید تا آبرو ترمیم شود.',
+    'همین قاعده برای هوش مصنوعی هم اجرا می‌شود — کشورهای توسعه‌طلب هم بدنام و منزوی می‌شوند.',
+  ] },
+  { icon: '🚨', title: 'وضعیت بحرانی', items: [
+    'اگر کشور هم‌زمان از چند سو در خطر باشد (اشغال، ناآرامی، بی‌ثباتی، ویرانی، بدهی، بی‌مشروعیتی) وارد «وضعیت بحرانی» می‌شود.',
+    'در این حالت هشدارهای پیوسته می‌گیرید که دقیقاً می‌گویند چه چیزی خراب است.',
+    'اگر چهار سال در بحران شدید بمانید، دولت فرو می‌پاشد و بازی را می‌بازید — حتی اگر هنوز استان داشته باشید.',
+    'راه بازگشت همیشه هست: صلح کنید، ناآرامی را با عفو یا توزیع غله بخوابانید و ویرانی را ترمیم کنید.',
   ] },
   { icon: '⚡', title: 'رویدادها و تصمیم‌ها', items: [
     'در جریان بازی رویدادهای تصادفی پیش می‌آیند؛ هر تصمیم واقعاً روی کشور اثر می‌گذارد (پول، ارتش، ناآرامی، روابط…).',

@@ -4,6 +4,7 @@
 
 import { clamp, lerp, pick } from './utils.js';
 import { charById, commanderPower, traitMods, addXP } from './characters.js';
+import { projectMods } from './projects.js';
 
 // ---------------- کلاس کشتی‌ها ----------------
 export const SHIP_CLASSES = {
@@ -119,7 +120,9 @@ export function fleetPower(S, f) {
   const adm = charById(S, f.admId);
   const tm = traitMods(adm);
   const cp = commanderPower(adm);
-  const techB = 1 + (n?.tech.includes('steelnavy') ? 0.18 : 0) + (n?.tech.includes('electric') ? 0.1 : 0);
+  // پروژه‌ی «ناوگان اقیانوس‌پیما» توان ناوگان را بالا می‌برد
+  const projB = 1 + (projectMods(S, n).navalPower || 0);
+  const techB = (1 + (n?.tech.includes('steelnavy') ? 0.18 : 0) + (n?.tech.includes('electric') ? 0.1 : 0)) * projB;
   return { atk: atk * cp * (1 + (tm.sea || 0)) * techB, hp, raw: atk };
 }
 export function fleetSpeed(S, f) {

@@ -1,5 +1,5 @@
 // ---------- پنل‌های سلسله، جهان و قدرت‌های بزرگ ----------
-import { esc, fd, fd1, fMoney, fSign, fPct, fDate } from './utils.js';
+import { esc, fd, fd1, fMoney, fSign, fPct, fDate, clamp } from './utils.js';
 import {
   ROYAL_TRAITS, SUCCESSION_LAWS, SUCCESSION_KEYS, FACTION_KINDS,
   rulerOf, heirOf, royalById, childrenOf, factionsOf, royalMods,
@@ -9,6 +9,7 @@ import {
 } from './world.js';
 import { powerScore, sphereLord, sphereOf, claimStrength, canSphere } from './greatpower.js';
 import { SEATS, SEAT_KEYS, seatScore, candidatesFor } from './council.js';
+import { PROJECTS, PROJECT_KEYS, DECREES, DECREE_KEYS, canStartProject, canDecree } from './projects.js';
 
 // ---------- کمکی ----------
 function bar(v, max, cls, h = 6) {
@@ -575,3 +576,76 @@ export function panelCouncil(S, UI, R) {
   }
   return { title: '🏛️ شورای درباری', html: h };
 }
+
+// ================== پروژه‌های ملی و فرمان‌های سلطنتی ==================
+export function panelProjects(S, UI, R) {
+  const n = S.nations[S.playerId];
+  if (S.timelineId !== 'victoria') return { title: '🏗️ پروژه‌های ملی', html: '<div class="hint dim">این سامانه ویژه‌ی خط زمانی ویکتوریا فانتزی است.</div>' };
+  let h = '';
+
+  // ---- در دست ساخت ----
+  const mine = (S.projects || []).filter(p => p.nid === n.id && !p.done);
+  h += `<div class="sec"><h4>🏗️ در دست ساخت (${fd(mine.length)}/۲)</h4>`;
+  if (!mine.length) h += '<div class="dim">هیچ پروژه‌ای در جریان نیست. خزانه‌ی راکد، فرصت از دست رفته است.</div>';
+  for (const p of mine) {
+    const P = PROJECTS[p.key];
+    const weekly = Math.ceil(P.cost / P.weeks);
+    const left = Math.max(0, Math.ceil((P.cost - p.paid) / weekly));
+    h += `<div class="proj-card${p.halted > 3 ? ' halted' : ''}">
+      <div class="proj-h"><b>${P.icon} ${esc(P.name)}</b><span class="dim">${fd(Math.round(p.prog))}٪</span></div>
+      <div class="bar big"><i class="good" style="width:${clamp(p.prog, 1, 100)}%"></i></div>
+      <div class="proj-i dim">قسط هفتگی ${fMoney(weekly)} · حدود ${fd(left)} هفته تا پایان
+        ${p.halted > 3 ? '<b class="bad">— کار خوابیده: خزانه خالی است</b>' : ''}</div>
+      <div class="dip-btns"><button class="mini-btn bad" data-act="proj-cancel" data-k="${p.key}">لغو (۳۵٪ بازگشت)</button></div>
+    </div>`;
+  }
+  h += '</div>';
+
+  // ---- کامل‌شده ----
+  const done = n.projDone || [];
+  if (done.length) {
+    h += '<div class="sec"><h4>✅ به پایان رسیده</h4><div class="proj-done">';
+    for (const k of done) h += `<span class="tag good" title="${esc(PROJECTS[k].desc)}">${PROJECTS[k].icon} ${esc(PROJECTS[k].name)}</span>`;
+    h += '</div></div>';
+  }
+
+  // ---- در دسترس ----
+  h += '<div class="sec"><h4>📐 طرح‌های پیشنهادی</h4>';
+  for (const k of PROJECT_KEYS) {
+    if (done.includes(k) || mine.some(p => p.key === k)) continue;
+    const P = PROJECTS[k];
+    const c = canStartProject(S, n, k);
+    const weekly = Math.ceil(P.cost / P.weeks);
+    const mods = Object.entries(P.mods).filter(([mk]) => mk !== 'prestigeFlat')
+      .map(([mk, v]) => `${PROJ_LBL[mk] || mk} ${v > 0 ? '+' : ''}${fd(Math.round(v * 100))}٪`).join(' · ');
+    h += `<div class="proj-card">
+      <div class="proj-h"><b>${P.icon} ${esc(P.name)}</b><span class="dim">${fMoney(P.cost)} · ${fd(Math.round(P.weeks / 52))} سال</span></div>
+      <div class="proj-i dim">${esc(P.desc)}</div>
+      <div class="proj-m gold">${mods}</div>
+      <div class="dip-btns">
+        <button class="mini-btn" data-act="proj-start" data-k="${k}" ${c.ok ? '' : 'disabled'}>${c.ok ? `آغاز (${fMoney(weekly)}/هفته)` : esc(c.why)}</button>
+      </div>
+    </div>`;
+  }
+  h += '</div>';
+
+  // ---- فرمان‌های سلطنتی ----
+  h += '<div class="sec"><h4>📜 فرمان‌های سلطنتی</h4><div class="hint dim">کنش‌های کم‌شمار و پرتأثیر؛ هر کدام سال‌ها انتظار می‌خواهد.</div>';
+  for (const k of DECREE_KEYS) {
+    const D = DECREES[k];
+    const c = canDecree(S, n, k);
+    const cd = (n.decreeCd || {})[k] || 0;
+    h += `<div class="decree-row">
+      <div><b>${D.icon} ${esc(D.name)}</b><div class="dim">${esc(D.desc)}</div></div>
+      <button class="mini-btn" data-act="decree" data-k="${k}" ${c.ok ? '' : 'disabled'}>
+        ${c.ok ? fMoney(D.cost) : (cd > 0 ? `${fd(Math.ceil(cd / 52))} سال` : esc(c.why))}</button>
+    </div>`;
+  }
+  h += '</div>';
+  return { title: '🏗️ پروژه‌های ملی', html: h };
+}
+const PROJ_LBL = {
+  moveSpeed: 'سرعت', prod: 'تولید', tradeCap: 'تجارت', research: 'پژوهش', literacy: 'سواد',
+  navalPower: 'توان دریایی', farm: 'کشاورزی', unrest: 'ناآرامی', popGrowth: 'رشد جمعیت',
+  stability: 'ثبات', armyAtk: 'تهاجم', armyMor: 'روحیه', upkeep: 'هزینه', taxIncome: 'درآمد', buildCost: 'هزینه ساخت',
+};

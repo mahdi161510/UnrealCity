@@ -12,6 +12,8 @@ import { initTrade } from './trade.js';
 import { initDynasty, resetRoyalUid } from './dynasty.js';
 import { initWorld } from './world.js';
 import { refreshGreatPowers, initCrises } from './greatpower.js';
+import { initProjects } from './projects.js';
+import { initInfamy } from './infamy.js';
 import { initCouncil } from './council.js';
 
 export const SAVE_KEY = 'unrealcity1836_save_v5';
@@ -191,6 +193,8 @@ export function newGame(seed, opts) {
   initDynasty(state);
   initCouncil(state);
   initCrises(state);
+  initProjects(state);
+  initInfamy(state);
   refreshGreatPowers(state);
   initEspionage(state);
   initNavy(state);
@@ -231,6 +235,9 @@ export function saveGame(state) {
       taxLvl: n.taxLvl, laws: n.laws, enact: n.enact, groups: n.groups, tech: n.tech,
       res: n.res, rel: n.rel, pacts: n.pacts, wars: n.wars, treasury: n.treasury,
       battalions: n.battalions, prestige: n.prestige, gdp: n.gdp, alive: n.alive,
+      projDone: n.projDone, decreeCd: n.decreeCd, industBoost: n.industBoost,
+      idleResWk: n.idleResWk, emergWk: n.emergWk,
+      infamy: n.infamy,
       boom: n.boom, strike: n.strike, capital: n.capital, revoltCd: n.revoltCd, dowCd: n.dowCd,
       literacy: n.literacy, missionsDone: n.missionsDone, annexed: n.annexed, electionCd: n.electionCd,
       warExh: n.warExh, personality: n.personality, persMods: n.persMods,
@@ -261,7 +268,7 @@ export function saveGame(state) {
     evCd: state.evCd, evSeen: state.evSeen, evFlags: state.evFlags, scheduled: state.scheduled,
     family: state.family, nextFamId: state.nextFamId,
     royals: state.royals, royalNews: state.royalNews,
-    regions: state.regions, wonders: state.wonders,
+    regions: state.regions, wonders: state.wonders, projects: state.projects, coalitions: state.coalitions,
     crises: state.crises, nextCrisisId: state.nextCrisisId,
     phase: state.phase, prologue: state.prologue, era: state.era,
   };
@@ -318,6 +325,8 @@ export function loadGame() {
   if (dyn.royalNews) state.royalNews = dyn.royalNews;
   if (dyn.regions?.length) state.regions = dyn.regions;
   if (dyn.wonders) state.wonders = dyn.wonders;
+  if (dyn.projects) state.projects = dyn.projects;
+  if (dyn.coalitions) state.coalitions = dyn.coalitions;
   if (dyn.crises) { state.crises = dyn.crises; state.nextCrisisId = dyn.nextCrisisId || 1; }
   // مقادیر پیش‌فرض برای ذخیره‌های ناقص
   for (const n of state.nations) {
