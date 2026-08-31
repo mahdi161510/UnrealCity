@@ -9,8 +9,11 @@ import { initNavy } from './naval.js';
 import { initEspionage } from './espionage.js';
 import { initSociety } from './society.js';
 import { initTrade } from './trade.js';
+import { initDynasty, resetRoyalUid } from './dynasty.js';
+import { initWorld } from './world.js';
+import { refreshGreatPowers, initCrises } from './greatpower.js';
 
-export const SAVE_KEY = 'unrealcity1836_save_v4';
+export const SAVE_KEY = 'unrealcity1836_save_v5';
 
 // قوانین آغازین هر خط زمانی (با توجه به روح دوره)
 function defaultLaws(tlId, pers, rng) {
@@ -42,7 +45,7 @@ export function newGame(seed, opts) {
   }
   const nations = defs.map((d, i) => ({
     id: i, key: d.key, name: d.name, adj: d.adj, ruler: d.ruler, pers: d.pers, desc: d.desc,
-    c1: d.c1, c2: d.c2, flag: d.flag,
+    c1: d.c1, c2: d.c2, flag: d.flag, ideas: d.ideas || null,
     player: i === playerIdx, alive: true, playable: real ? i < tl.nations.length : true,
     capital: 0,
     treasury: Math.round((2500 + ((seed >> i) % 7) * 400) * (diffMods.startMoney || 1) * (scMods.treasuryMult || 1)),
@@ -153,6 +156,8 @@ export function newGame(seed, opts) {
     battles: [], nextBattleId: 1,
     // --- سامانه‌های تازه ---
     chars: [], nextOpId: 1,
+    royals: [], royalNews: [], nextRoyalEventId: 1,
+    regions: [], wonders: [], crises: [], nextCrisisId: 1,
     fleets: [], nextFleetId: 1, seaZones: [],
     navalBattles: [],
     fx: [],
@@ -179,6 +184,12 @@ export function newGame(seed, opts) {
   initCharacters(state);
   initSociety(state);
   initTrade(state);
+  // --- سلسله، جهان داستان‌دار و قدرت‌های بزرگ (فقط خط ویکتوریا) ---
+  resetRoyalUid();
+  initWorld(state);
+  initDynasty(state);
+  initCrises(state);
+  refreshGreatPowers(state);
   initEspionage(state);
   initNavy(state);
 
@@ -227,12 +238,15 @@ export function saveGame(state) {
       culture: n.culture, religion: n.religion, stability: n.stability, legitimacy: n.legitimacy,
       movements: n.movements, civilWar: n.civilWar, civilWarCd: n.civilWarCd, lostProvs: n.lostProvs,
       tariff: n.tariff, routes: n.routes, companies: n.companies, colonies: n.colonies,
+      dyn: n.dyn, sphere: n.sphere, sphereSince: n.sphereSince,
+      greatPower: n.greatPower, gpRank: n.gpRank, powerScore: n.powerScore, ruler: n.ruler,
     })),
     provs: state.map.provs.map(p => ({
       owner: p.owner, controller: p.controller, pops: p.pops, bld: p.bld, queue: p.queue,
       unrest: p.unrest, sol: p.sol, devast: p.devast,
       culture: p.culture, religion: p.religion, assim: p.assim, sepPressure: p.sepPressure,
       navyQueue: p.navyQueue, blockaded: p.blockaded,
+      landmark: p.landmark, rare: p.rare, region: p.region, tribe: p.tribe,
     })),
     chars: state.chars, nextOpId: state.nextOpId,
     fleets: state.fleets, nextFleetId: state.nextFleetId,
@@ -243,6 +257,9 @@ export function saveGame(state) {
     log: state.log.slice(-60), stats: state.stats, victory: state.victory,
     evCd: state.evCd, evSeen: state.evSeen, scheduled: state.scheduled,
     family: state.family, nextFamId: state.nextFamId,
+    royals: state.royals, royalNews: state.royalNews,
+    regions: state.regions, wonders: state.wonders,
+    crises: state.crises, nextCrisisId: state.nextCrisisId,
     phase: state.phase, prologue: state.prologue, era: state.era,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(dyn));
@@ -288,6 +305,16 @@ export function loadGame() {
     resetCharUid(mx + 1);
   }
   if (dyn.fleets) { state.fleets = dyn.fleets; state.nextFleetId = dyn.nextFleetId || 1; }
+  // ---- سلسله، جهان و بحران‌ها ----
+  if (dyn.royals?.length) {
+    state.royals = dyn.royals;
+    let mr = 0; for (const r of state.royals) mr = Math.max(mr, r.id);
+    resetRoyalUid(mr + 1);
+  }
+  if (dyn.royalNews) state.royalNews = dyn.royalNews;
+  if (dyn.regions?.length) state.regions = dyn.regions;
+  if (dyn.wonders) state.wonders = dyn.wonders;
+  if (dyn.crises) { state.crises = dyn.crises; state.nextCrisisId = dyn.nextCrisisId || 1; }
   // مقادیر پیش‌فرض برای ذخیره‌های ناقص
   for (const n of state.nations) {
     n.cabinet = n.cabinet || {}; n.candidates = n.candidates || [];

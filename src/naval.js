@@ -308,6 +308,7 @@ export function simNaval(S) {
       if (q.prog >= q.weeks) {
         deliverShip(S, p, q.key);
         const n = S.nations[p.owner];
+        if (!n) { p.navyQueue.splice(i, 1); i--; continue; }
         S.log.push({ w: S.week, icon: SHIP_CLASSES[q.key].icon, text: `${n.name}: «${SHIP_CLASSES[q.key].name}» در ${p.name} به آب انداخته شد.` });
         if (n.player) { S.pendingAlerts = S.pendingAlerts || []; S.pendingAlerts.push({ icon: '⚓', text: `${SHIP_CLASSES[q.key].name} آماده‌ی خدمت است`, w: S.week }); }
         p.navyQueue.splice(i, 1); i--;

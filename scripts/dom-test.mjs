@@ -50,6 +50,7 @@ const UIx = await import('../src/ui.js');
 const { MapRenderer } = await import('../src/render.js');
 const st = await import('../src/state.js');
 const SIM = await import('../src/sim.js');
+const DYN = await import('../src/dynasty.js');
 const { BUILDINGS, EVENTS } = await import('../src/data.js');
 
 function step(name, fn) {
@@ -383,6 +384,101 @@ step('۳۰ تیک با همه‌ی سامانه‌های تازه فعال', () 
     for (const o of [...(S.dipOffers || [])]) SIM.respondOffer(S, o.id, false);
   }
   for (const nm of ['court', 'navy', 'spy', 'society', 'trade']) openP(nm);
+});
+step('پنل سلسله + قانون جانشینی + خاندان‌ها', () => {
+  const body = openP('dynasty');
+  const pn = S.nations[S.playerId];
+  if (!pn.dyn) throw new Error('سلسله ساخته نشد');
+  if (!body.querySelector('.roy-card')) throw new Error('کارت پادشاه رندر نشد');
+  if (!body.querySelector('.fac-row')) throw new Error('خاندان‌ها رندر نشد');
+  pn.treasury += 40000;
+  UIx.renderPanel();
+  // پیشکش به خاندان
+  const gift = document.querySelector('#panel-body [data-act="fac-gift"]');
+  const f0 = pn.dyn.factions.find(f => f.house === gift.dataset.h);
+  const loyB = f0.loyalty;
+  gift.click();
+  if (f0.loyalty <= loyB) throw new Error('پیشکش وفاداری را بالا نبرد');
+  // تغییر قانون جانشینی
+  UIx.renderPanel();
+  const law = document.querySelector('#panel-body [data-act="succ-law"]');
+  const newLaw = law.dataset.k;
+  law.click();
+  document.getElementById('confirm-yes').click();
+  if (pn.dyn.succession !== newLaw) throw new Error('قانون جانشینی تغییر نکرد');
+});
+step('وصلت سلطنتی از UI', () => {
+  const pn = S.nations[S.playerId];
+  pn.treasury += 20000;
+  for (const o of S.nations) if (o.id !== pn.id) pn.rel[o.id] = 40;
+  UIx.renderPanel();
+  const pm = document.querySelector('#panel-body [data-act="propose-marriage"]');
+  if (!pm) return;
+  const before = Object.keys(pn.dyn.marriages).length;
+  pm.click();
+  if (Object.keys(pn.dyn.marriages).length !== before + 1) throw new Error('وصلت انجام نشد');
+});
+step('مرگ پادشاه ⇒ جانشینی خودکار', () => {
+  const pn = S.nations[S.playerId];
+  const k = DYN.rulerOf(S, pn.id);
+  const heirBefore = pn.dyn.heirId;
+  if (!k) throw new Error('پادشاهی نیست');
+  DYN.killRoyal(S, k, 'آزمون');
+  const k2 = DYN.rulerOf(S, pn.id);
+  if (!k2 || !k2.alive) throw new Error('جانشین بر تخت ننشست');
+  if (k2.id === k.id) throw new Error('پادشاه مرده هنوز حکومت می‌کند');
+  if (heirBefore && k2.id !== heirBefore) throw new Error('وارث تعیین‌شده جانشین نشد');
+  if (!pn.ruler.includes(k2.name)) throw new Error('نام فرمانروا به‌روز نشد');
+});
+step('پنل جهان + بنای عظیم', () => {
+  const body = openP('world');
+  if (!S.regions?.length) throw new Error('مناطق ساخته نشد');
+  const pn = S.nations[S.playerId];
+  pn.treasury += 90000;
+  const mine = S.map.provs.find(p => p.owner === pn.id);
+  UIx.selectProv(mine.id);
+  openP('world');
+  const bw = document.querySelector('#panel-body [data-act="build-wonder"]:not(.dis-op)');
+  if (bw) {
+    bw.click();
+    if (!(S.wonders || []).some(w => !w.done)) throw new Error('ساخت بنای عظیم آغاز نشد');
+  }
+});
+step('پنل قدرت‌های بزرگ + بحران بین‌المللی', () => {
+  const body = openP('powers');
+  if (!body.querySelector('.gp-row')) throw new Error('رتبه‌بندی قدرت رندر نشد');
+  const pn = S.nations[S.playerId];
+  pn.treasury += 40000;
+  UIx.renderPanel();
+  const fab = document.querySelector('#panel-body [data-act="fabricate"]');
+  if (fab) {
+    const tid = +fab.dataset.id;
+    fab.click();
+    if (!(pn.dyn.claims[tid] > 0)) throw new Error('ادعای ارضی ساخته نشد');
+  }
+  UIx.renderPanel();
+  const sc = document.querySelector('#panel-body [data-act="start-crisis"]');
+  if (sc) sc.click();
+});
+step('سرزمین بکر: کلیک روی هر استان بدون خطا', () => {
+  const free = S.map.provs.filter(p => p.owner < 0);
+  if (!free.length) throw new Error('هیچ سرزمین بکری ساخته نشد — استعمار بی‌معنا می‌شود');
+  // روی همه‌ی استان‌ها کلیک کن: صاحب‌دار، بکر، اشغالی
+  for (const p of S.map.provs) {
+    UIx.selectProv(p.id);
+    UIx.openPanel('province');
+    const bodyH = document.getElementById('panel-body').innerHTML;
+    if (!bodyH.trim()) throw new Error('پنل استان خالی شد برای ' + p.name);
+  }
+  // هاور روی همه‌جا
+  for (let i = 0; i < 40; i++) UIx.mapHover(i * 17 % 900, i * 23 % 600);
+});
+step('همه‌ی مُدهای نقشه با سرزمین بکر', () => {
+  for (const m of ['political','terrain','population','production','unrest','culture','religion','naval','separatism','devast','houses','regions','power']) {
+    UIx.UI.mapMode = m; R.mapMode = m; R.dirtyPol = true;
+    R.draw(S, UIx.UI, 1, 0.016);
+  }
+  UIx.UI.mapMode = 'political'; R.mapMode = 'political'; R.dirtyPol = true;
 });
 step('ذخیره و بارگذاری', () => {
   st.saveGame(S);

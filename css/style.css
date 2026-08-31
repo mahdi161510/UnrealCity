@@ -787,3 +787,130 @@ button { font-family: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ================================================================
+   ===== سلسله، جهان و قدرت‌های بزرگ =====
+   ================================================================ */
+
+/* --- کارت شخص سلطنتی --- */
+.roy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; }
+.roy-card {
+  background: linear-gradient(180deg, rgba(217,177,102,.10), rgba(255,240,200,.02));
+  border: 1px solid rgba(217,177,102,.30); border-radius: 12px; padding: 9px 10px;
+  display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden;
+}
+.roy-card::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 70% at 50% 0%, rgba(255,244,214,.09), transparent 62%);
+}
+.roy-card.empty { border-style: dashed; opacity: .7; align-items: center; justify-content: center; min-height: 90px; }
+.roy-lbl { font-size: 10px; color: var(--gold2); letter-spacing: .6px; font-weight: 800; }
+.roy-head { display: flex; gap: 8px; align-items: center; }
+.roy-av { font-size: 26px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.55)); }
+.roy-id b { font-size: 13.5px; color: #ffeec4; }
+.age-b { font-size: 10.5px; }
+.hp-b { font-size: 10.5px; font-weight: 700; }
+.roy-stats { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+.roy-stats.small { gap: 6px; font-size: 10px; }
+.stat-dots { color: var(--gold2); letter-spacing: -.5px; font-size: 9px; }
+.rt-row { display: flex; flex-wrap: wrap; gap: 3px; }
+.rt-chip {
+  font-size: 9.5px; padding: 2px 6px; border-radius: 10px; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.rt-chip.gd { background: rgba(143,188,106,.14); border-color: rgba(143,188,106,.4); color: #cfe6b4; }
+.rt-chip.bd { background: rgba(208,90,74,.14); border-color: rgba(208,90,74,.4); color: #f0bfb4; }
+.edu-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.edu-row .mini-btn.on { background: rgba(232,199,102,.22); border-color: var(--gold2); }
+
+/* --- تراشه‌های ضریب --- */
+.mod-row { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.mod-row.small .mod-chip { font-size: 9px; padding: 1px 5px; }
+.mod-chip { font-size: 10px; padding: 2px 6px; border-radius: 8px; background: rgba(255,240,200,.06); border: 1px solid var(--line); }
+.mod-chip.gd { color: #b8dd94; border-color: rgba(143,188,106,.35); }
+.mod-chip.bd { color: #eab0a4; border-color: rgba(208,90,74,.35); }
+
+/* --- قانون جانشینی --- */
+.succ-list { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+.succ-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+}
+.succ-row.on { border-color: var(--gold2); background: rgba(217,177,102,.11); }
+.succ-main { flex: 1; min-width: 0; }
+.succ-main b { font-size: 12px; }
+
+/* --- خاندان‌ها --- */
+.fac-row {
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42);
+  border-right: 3px solid rgba(217,177,102,.4); border-radius: 10px;
+  padding: 8px 10px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 4px;
+}
+.fac-row.pretender {
+  border-right-color: var(--bad); background: rgba(208,90,74,.09);
+  animation: facpulse 2.6s ease-in-out infinite;
+}
+@keyframes facpulse { 50% { box-shadow: 0 0 16px rgba(208,90,74,.28); } }
+.fac-head { display: flex; gap: 8px; align-items: center; }
+.fac-ic { font-size: 19px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.fac-id { flex: 1; min-width: 0; }
+.fac-row .bar-row { gap: 6px; }
+.bar-v { font-size: 10px; min-width: 24px; text-align: left; color: var(--ink-dim); }
+
+/* --- وصلت و اخبار --- */
+.mar-row, .news-row {
+  display: flex; gap: 9px; align-items: center; padding: 6px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.4); border-radius: 10px;
+}
+.mar-mid, .news-mid { flex: 1; min-width: 0; }
+.news-row { align-items: flex-start; }
+.news-ic { font-size: 16px; }
+.news-mid > div { font-size: 11.5px; line-height: 1.7; }
+.union-box {
+  background: linear-gradient(90deg, rgba(217,177,102,.16), rgba(217,177,102,.05));
+  border: 1px solid rgba(217,177,102,.45); border-radius: 10px; padding: 8px 11px; font-size: 12.5px;
+}
+
+/* --- بناهای عظیم و آثار --- */
+.wonder-row, .lm-row {
+  display: flex; gap: 10px; align-items: center; padding: 8px 10px; margin-bottom: 6px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 11px;
+}
+.lm-row { cursor: pointer; transition: border-color .12s, transform .12s; }
+.lm-row:hover { border-color: rgba(217,177,102,.5); transform: translateX(-2px); }
+.wonder-row.mine { border-color: rgba(217,177,102,.55); background: rgba(217,177,102,.10); }
+.wonder-row.taken { opacity: .55; }
+.wonder-row.building { border-color: var(--gold2); background: rgba(217,177,102,.12); }
+.wo-ic, .lm-ic { font-size: 24px; filter: drop-shadow(0 2px 5px rgba(0,0,0,.5)); }
+.wo-mid, .lm-mid { flex: 1; min-width: 0; }
+.bar > i.gold { background: linear-gradient(90deg, var(--gold2), #a8842f); }
+
+/* --- قدرت‌های بزرگ --- */
+.gp-row {
+  display: flex; gap: 9px; align-items: center; padding: 7px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.03); border: 1px solid rgba(80,66,40,.38); border-radius: 10px;
+}
+.gp-row.gp { border-color: rgba(217,177,102,.45); background: rgba(217,177,102,.07); }
+.gp-row.me { box-shadow: inset 0 0 0 1px var(--gold2); }
+.gp-rank { font-size: 13px; font-weight: 900; color: var(--gold2); min-width: 20px; text-align: center; }
+.gp-mid { flex: 1; min-width: 0; }
+
+/* --- بحران --- */
+.crisis-box {
+  background: linear-gradient(180deg, rgba(208,90,74,.10), rgba(255,240,200,.02));
+  border: 1px solid rgba(208,90,74,.35); border-radius: 11px; padding: 9px 11px; margin-bottom: 7px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.crisis-box.mine { border-color: var(--bad); box-shadow: 0 0 14px rgba(208,90,74,.2); }
+.crisis-bar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.5); }
+.cb-a { background: linear-gradient(90deg, #d05a4a, #a8402f); }
+.cb-d { background: linear-gradient(90deg, #3a7fa8, #2b5d8a); }
+
+/* --- استان بکر --- */
+.pv-tribe-ic { font-size: 22px; }
+.nc-idea {
+  margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(217,177,102,.28);
+  font-size: 10.5px;
+}
+.nc-idea b { color: var(--gold2); font-size: 11px; }
+.nc-idea .mod-row { justify-content: center; margin-top: 3px; }

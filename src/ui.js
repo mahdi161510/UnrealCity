@@ -6,6 +6,10 @@ import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
 import { REBEL } from './sim.js';
 import { panelCourt, panelNavy, panelSpy, panelSociety, panelTrade } from './panels2.js';
+import { panelDynasty, panelWorld, panelPowers } from './panels3.js';
+import { rulerOf, heirOf, royalById, recalcHeir, arrangeMarriage, SUCCESSION_LAWS } from './dynasty.js';
+import { startWonder, WONDERS, LANDMARKS, RARE_RES, regionOf } from './world.js';
+import { addToSphere, leaveSphere, fabricateClaim, startCrisis, crisisAddBacker } from './greatpower.js';
 import { SEASONS, seasonOfWeek } from './render.js';
 import { appointMinister, dismissMinister, charById, charsOf, CABINET } from './characters.js';
 import { startShip, cancelShip, orderFleet, setBlockade, loadArmy, unloadArmy, fleetsOf, totalShips, zoneOf, SHIP_CLASSES as SHIP_CLASSES2 } from './naval.js';
@@ -58,6 +62,12 @@ try {
 } catch (e) { /* ذخیره‌ی منو در دسترس نیست */ }
 function saveMenuPrefs() { try { localStorage.setItem('uc_menu', JSON.stringify(menuPrefs)); } catch (e) { } }
 
+const IDEA_LBL = {
+  legitimacy: 'مشروعیت', armyMor: 'روحیه', taxIncome: 'درآمد', urbanOut: 'صنعت', buildCost: 'هزینه ساخت',
+  moveSpeed: 'سرعت', armyAtk: 'تهاجم', upkeep: 'هزینه', farm: 'کشاورزی', popGrowth: 'رشد جمعیت',
+  tradeCap: 'تجارت', ironBonus: 'آهن', prod: 'تولید', research: 'پژوهش', literacy: 'سواد',
+  stability: 'ثبات', unrest: 'ناآرامی', relGain: 'دیپلماسی',
+};
 export function showMenu(cb) {
   if (cb) menuHooks = cb;
   const m = document.getElementById('menusc');
@@ -147,6 +157,12 @@ function renderSetup() {
       <div class="nc-ruler">${esc(d.ruler)}</div>
       <div class="nc-desc">${esc(d.desc)}</div>
       <div class="nc-pers">${({ balanced: '⚖️ متعادل', industrial: '🏭 صنعتی', aggressive: '⚔️ جنگ‌جو', trader: '💰 بازرگان', peaceful: '🕊️ صلح‌طلب' })[d.pers] || ''}</div>
+      ${d.ideas ? `<div class="nc-idea"><b>${esc(d.ideas.name)}</b>
+        <div class="mod-row small">${Object.entries(d.ideas.mods).map(([mk, mv]) => {
+          const bad = ['upkeep', 'unrest', 'corruption', 'buildCost'].includes(mk);
+          const good = bad ? mv < 0 : mv > 0;
+          return `<span class="mod-chip ${good ? 'gd' : 'bd'}">${esc(IDEA_LBL[mk] || mk)} ${(mv > 0 ? '+' : '') + Math.round(mv * 100)}٪</span>`;
+        }).join('')}</div></div>` : ''}
     </div>`);
     card.onclick = () => {
       Audio2.click();
@@ -202,6 +218,7 @@ function buildMapModeBar() {
     ['production', '🏭 تولید'], ['unrest', '🔥 ناآرامی'],
     ['culture', '🌍 فرهنگ'], ['religion', '🕌 مذهب'],
     ['naval', '⚓ دریایی'], ['separatism', '🏴 جدایی‌طلبی'], ['devast', '💥 ویرانی'],
+    ['houses', '🏰 خاندان‌ها'], ['regions', '🗺️ مناطق'], ['power', '🌟 قدرت'],
   ];
   const bar = document.getElementById('mapmodes');
   bar.innerHTML = '';
@@ -335,6 +352,9 @@ export function renderPanel() {
     spy:     () => panelSpy(S, UI, R),
     society: () => panelSociety(S, UI, R),
     trade:   () => panelTrade(S, UI, R),
+    dynasty: () => panelDynasty(S, UI, R),
+    world:   () => panelWorld(S, UI, R),
+    powers:  () => panelPowers(S, UI, R),
   };
   const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions, family: panelFamily, ...P2 }[UI.panel];
   if (!fn) return;
@@ -359,9 +379,9 @@ function panelProvince() {
   const occ = p.controller !== p.owner;
   let html = `
     <div class="pv-head">
-      <img class="flag" src="${R.flagURL(n)}" alt="">
+      ${n ? `<img class="flag" src="${R.flagURL(n)}" alt="">` : '<span class="pv-tribe-ic">🏴</span>'}
       <div><div class="pv-name">${esc(p.name)}</div>
-      <div class="dim">${esc(n.name)}${occ ? ` — <b class="neg">${p.controller === REBEL ? '🔥 اشغال شورشیان' : '⚑ اشغال ' + esc(S.nations[p.controller].name)}</b>` : ''}</div></div>
+      <div class="dim">${n ? esc(n.name) : esc(p.tribe || 'سرزمین بکر') + ' — مستقل'}${occ && n ? ` — <b class="neg">${p.controller === REBEL ? '🔥 اشغال شورشیان' : '⚑ اشغال ' + esc(S.nations[p.controller]?.name || '')}</b>` : ''}</div></div>
     </div>
     <div class="pv-tags">
       <span class="tag">${t.icon} ${t.name}</span>
@@ -370,7 +390,8 @@ function panelProvince() {
       ${p.res.coal > 0.3 ? '<span class="tag">🪨 زغال</span>' : ''}
       ${p.res.wood > 0.5 ? '<span class="tag">🌲 چوب فراوان</span>' : ''}
       ${p.res.farm > 0.6 ? '<span class="tag">🌾 حاصلخیز</span>' : ''}
-      ${p.id === n.capital ? '<span class="tag gold">★ پایتخت</span>' : ''}
+      ${n && p.id === n.capital ? '<span class="tag gold">★ پایتخت</span>' : ''}
+      ${p.tribe ? `<span class="tag">🏴 ${esc(p.tribe)}</span>` : ''}
     </div>
     <div class="kv">
       <div>👥 جمعیت <b>${fK(pop)}</b></div>
@@ -435,11 +456,25 @@ function panelProvince() {
   html += '</div>';
 
   // اقدام نظامی/دیپلماتیک برای استان غیرخودی
-  if (!own) {
+  if (!own && n) {
     html += `<div class="sec">اقدامات</div><div class="row-btns">
       ${!SIM.warBetween(S, p.owner, S.playerId) ? `<button class="btn danger" data-act="dow">⚔️ اعلام جنگ برای این استان</button>` : '<div class="dim">در حال جنگ با این ملت هستید</div>'}
       <button class="btn ghost" data-act="dip">🤝 دیپلماسی با ${esc(n.name)}</button>
     </div>`;
+  } else if (!own && !n) {
+    // سرزمین بکر: راه گرفتنش استعمار است، نه جنگ
+    const already = (pn.colonies || []).find(c => c.prov === p.id);
+    const near = p.adj.some(q => S.map.provs[q]?.owner === S.playerId);
+    html += `<div class="sec">سرزمین بکر</div>
+      <div class="dim small" style="margin-bottom:6px">${esc(p.tribe || 'قبیله‌ای مستقل')} در این سرزمین می‌زیند. با مأموریت استعماری می‌توانید آن را به قلمرو بیفزایید.</div>`;
+    if (already) {
+      html += `<div class="bar-row"><span class="bar-lb">پیشرفت استعمار</span><div class="bar"><i class="gold" style="width:${clamp(already.prog, 0, 100)}%"></i></div><b>${fd(Math.round(already.prog))}٪</b></div>
+        <div class="row-btns"><button class="btn ghost" data-act="abandon-col" data-p="${p.id}">🏳️ رها کردن مأموریت</button></div>`;
+    } else {
+      html += `<div class="row-btns">
+        <button class="btn ${near ? '' : 'ghost'}" data-act="colonize" data-p="${p.id}" ${near ? '' : 'title="باید هم‌مرز قلمرو شما باشد"'}>🏴 آغاز مأموریت استعماری</button>
+      </div>`;
+    }
   }
   return {
     title: `استان ${p.name}`, html,
@@ -678,6 +713,7 @@ function pickWarGoalAndDeclare(targetNationId) {
 function declareForProvince(pid) {
   const p = S.map.provs[pid];
   const n = S.nations[p.owner];
+  if (!n) { toast('⚠️', 'این سرزمین صاحبی ندارد — با مأموریت استعماری آن را بگیرید'); return; }
   confirmBox(`اعلام جنگ به ${n.name}`, `آیا برای تصرف استان «${p.name}» به ${n.name} اعلام جنگ می‌دهید؟ این کار روابط شما با جهان را تیره می‌کند.`, () => {
     SIM.declareWar(S, S.playerId, p.owner, pid);
     R.dirtyBorders = true;
@@ -1152,6 +1188,153 @@ function doAction(act, b) {
       break;
     }
     case 'abandon-col': { abandonColony(S, pn, +b.dataset.p); toast('🏳️', 'مأموریت رها شد'); break; }
+
+    // ---------- سلسله ----------
+    case 'educate': {
+      const h = heirOf(S, pn.id);
+      if (!h) { toast('⚠️', 'وارثی ندارید'); break; }
+      if (h.age > 16) { toast('⚠️', 'وارث بزرگ‌تر از آن است که تربیت شود'); break; }
+      h.education = b.dataset.e;
+      const nm = { martial: 'نظامی', admin: 'دیوانی', diplo: 'دیپلماتیک', guile: 'فنون پنهان' }[b.dataset.e];
+      toast('📚', `${h.name} زیر تربیت ${nm} قرار گرفت`);
+      break;
+    }
+    case 'name-heir': {
+      if (pn.dyn.succession !== 'appointed') { toast('⚠️', 'تنها با قانون «انتصابی» ممکن است'); break; }
+      pn.dyn.appointedHeir = +b.dataset.id;
+      recalcHeir(S, pn.id);
+      const h2 = heirOf(S, pn.id);
+      toast('👑', h2 ? `${h2.name} وارث تاج شد` : 'انجام شد');
+      break;
+    }
+    case 'succ-law': {
+      const key = b.dataset.k;
+      const L = SUCCESSION_LAWS[key];
+      if (pn.dyn.succession === key) break;
+      if (pn.treasury < 4000) { toast('⚠️', 'خزانه کافی نیست (۴۰۰۰)'); break; }
+      confirmBox('تغییر قانون جانشینی', `آیا قانون جانشینی را به «${L.name}» تغییر می‌دهید؟ ۴۰۰۰ سکه هزینه دارد و اشراف رنجیده می‌شوند.`, () => {
+        pn.treasury -= 4000;
+        pn.dyn.succession = key;
+        for (const f of pn.dyn.factions) f.loyalty = clamp(f.loyalty - 8, 0, 100);
+        pn.legitimacy = clamp((pn.legitimacy ?? 60) - 5, 0, 100);
+        recalcHeir(S, pn.id);
+        toast('📜', `قانون جانشینی به «${L.name}» تغییر کرد`);
+        renderPanel(); refreshTopbar();
+      });
+      return;
+    }
+    case 'fac-gift': {
+      const f = pn.dyn.factions.find(x => x.house === b.dataset.h);
+      if (!f) break;
+      if (pn.treasury < 1800) { toast('⚠️', 'خزانه کافی نیست (۱۸۰۰)'); break; }
+      pn.treasury -= 1800;
+      f.loyalty = clamp(f.loyalty + 15, 0, 100);
+      f.grudge = Math.max(0, f.grudge - 12);
+      toast('🎁', `خاندان ${f.house} پیشکش را پذیرفت`);
+      Audio2.coin();
+      break;
+    }
+    case 'fac-honor': {
+      const f = pn.dyn.factions.find(x => x.house === b.dataset.h);
+      if (!f) break;
+      f.loyalty = clamp(f.loyalty + 25, 0, 100);
+      f.power = clamp(f.power + 5, 3, 100);
+      f.grudge = Math.max(0, f.grudge - 20);
+      // خاندان‌های دیگر کمی حسادت می‌کنند
+      for (const o of pn.dyn.factions) if (o !== f) o.loyalty = clamp(o.loyalty - 4, 0, 100);
+      toast('🎖️', `سرکرده‌ی ${f.house} تکریم شد — اما دیگران حسود شدند`);
+      break;
+    }
+    case 'fac-curb': {
+      const f = pn.dyn.factions.find(x => x.house === b.dataset.h);
+      if (!f) break;
+      confirmBox('کوتاه‌کردن دست خاندان', `نفوذ خاندان ${f.house} را می‌شکنید؟ نفوذ −۱۵ اما وفاداری −۲۰ و کینه می‌ماند.`, () => {
+        f.power = clamp(f.power - 15, 3, 100);
+        f.loyalty = clamp(f.loyalty - 20, 0, 100);
+        f.grudge = clamp(f.grudge + 15, 0, 100);
+        toast('⛓️', `دست خاندان ${f.house} کوتاه شد`);
+        renderPanel(); refreshTopbar();
+      });
+      return;
+    }
+    case 'propose-marriage': {
+      const sel = document.getElementById('mar-nation');
+      if (!sel) break;
+      const tid = +sel.value;
+      if (pn.treasury < 2000) { toast('⚠️', 'خزانه کافی نیست (۲۰۰۰)'); break; }
+      if ((pn.rel[tid] || 0) < 0) { toast('⚠️', 'با روابط منفی وصلت نمی‌کنند'); break; }
+      pn.treasury -= 2000;
+      const r = arrangeMarriage(S, pn.id, tid);
+      toast(r.ok ? '💍' : '⚠️', r.ok ? `پیوند با ${S.nations[tid].name} بسته شد` : r.why);
+      break;
+    }
+
+    // ---------- جهان ----------
+    case 'build-wonder': {
+      if (UI.selProv < 0) { toast('⚠️', 'نخست استانی را برگزینید'); break; }
+      const r = startWonder(S, pn, b.dataset.k, UI.selProv);
+      toast(r.ok ? '🏯' : '⚠️', r.ok ? `ساخت ${WONDERS[b.dataset.k].name} آغاز شد` : r.why);
+      if (r.ok) Audio2.coin();
+      break;
+    }
+
+    // ---------- قدرت‌های بزرگ ----------
+    case 'add-sphere': {
+      const t = S.nations[+b.dataset.id];
+      const r = addToSphere(S, pn, t);
+      toast(r.ok ? '🎭' : '⚠️', r.ok ? `${t.name} به حوزه‌ی نفوذ شما پیوست` : r.why);
+      break;
+    }
+    case 'leave-sphere': {
+      const r = leaveSphere(S, pn);
+      toast(r.ok ? '⛓️' : '⚠️', r.ok ? 'از حوزه‌ی نفوذ بیرون آمدید' : r.why);
+      break;
+    }
+    case 'fabricate': {
+      const t = S.nations[+b.dataset.id];
+      const r = fabricateClaim(S, pn, t.id);
+      toast(r.ok ? '📜' : '⚠️', r.ok ? `ادعای ارضی بر ${t.name} تقویت شد` : r.why);
+      break;
+    }
+    case 'start-crisis': {
+      const t = S.nations[+b.dataset.id];
+      const c = startCrisis(S, pn.id, t.id, null);
+      toast(c ? '🔥' : '⚠️', c ? `بحران بر سر ${S.map.provs[c.prov].name} آغاز شد` : 'استان مرزی مشترکی نیست');
+      break;
+    }
+    case 'crisis-join': {
+      const c = (S.crises || []).find(x => x.id === +b.dataset.id);
+      if (!c) break;
+      const side = b.dataset.s === 'a' ? 'backA' : 'backD';
+      if (c.backA.includes(pn.id) || c.backD.includes(pn.id)) { toast('⚠️', 'پیش‌تر طرف گرفته‌اید'); break; }
+      c[side].push(pn.id);
+      const other = b.dataset.s === 'a' ? S.nations[c.d] : S.nations[c.a];
+      const friend = b.dataset.s === 'a' ? S.nations[c.a] : S.nations[c.d];
+      friend.rel[pn.id] = clamp((friend.rel[pn.id] || 0) + 18, -100, 100);
+      other.rel[pn.id] = clamp((other.rel[pn.id] || 0) - 20, -100, 100);
+      toast('⚖️', `از ${friend.name} پشتیبانی کردید`);
+      break;
+    }
+    case 'crisis-back': {
+      const c = (S.crises || []).find(x => x.id === +b.dataset.id);
+      if (!c) break;
+      if (pn.treasury < 2500) { toast('⚠️', 'خزانه کافی نیست (۲۵۰۰)'); break; }
+      pn.treasury -= 2500;
+      const mySide = c.a === pn.id ? 'backA' : 'backD';
+      const free = S.nations.filter(x => x.alive && x.greatPower && !c.backA.includes(x.id) && !c.backD.includes(x.id));
+      free.sort((x, y) => (pn.rel[y.id] || 0) - (pn.rel[x.id] || 0));
+      if (free[0]) { c[mySide].push(free[0].id); toast('🤝', `${free[0].name} به پشتیبانی شما آمد`); }
+      else toast('⚠️', 'قدرت بزرگ آزادی نمانده است');
+      break;
+    }
+    case 'crisis-fold': {
+      const c = (S.crises || []).find(x => x.id === +b.dataset.id);
+      if (!c) break;
+      c.active = false; c.resolved = 'عقب‌نشینی';
+      pn.prestige = Math.max(0, (pn.prestige || 0) - 6);
+      toast('🏳️', 'عقب نشستید — جنگ نشد، اما آبرو رفت');
+      break;
+    }
   }
   renderPanel();
   refreshTopbar();
@@ -1237,7 +1420,7 @@ export function mapHover(sx, sy) {
     const p = S.map.provs[pid];
     const n = S.nations[p.owner];
     tip.style.display = '';
-    tip.textContent = `${TERRAIN[p.terrain].icon} ${p.name} — ${n.name}`;
+    tip.textContent = `${TERRAIN[p.terrain].icon} ${p.name} — ${n ? n.name : (p.tribe || 'سرزمین بکر')}`;
     tip.style.left = (sx + 14) + 'px';
     tip.style.top = (sy + 8) + 'px';
   } else tip.style.display = 'none';
@@ -1417,8 +1600,20 @@ export function showHelp(inGame) {
       <li>🌍 <b>جامعه:</b> فرهنگ و مذهب استان‌ها با کشور شما فرق می‌کند؛ اقلیت‌های ناراضی فشار جدایی‌طلبی می‌سازند. شش جنبش سیاسی قدرت می‌گیرند — سرکوب یا مصالحه کنید. اگر <b>ثبات</b> و <b>مشروعیت</b> هر دو سقوط کنند، جنگ داخلی می‌شود.</li>
       <li>🛣️ <b>تجارت و مستعمرات:</b> تعرفه بگذارید، مسیرهای صادرات/واردات با کشورهای دیگر بگشایید، شرکت‌های بزرگ تأسیس کنید و سرزمین‌های بی‌صاحب را مستعمره کنید. محاصره‌ی دریایی تجارت‌تان را می‌خشکاند.</li>
     </ul>
+    <h3>سلسله و جهان (ویژه‌ی ویکتوریا فانتزی)</h3>
+    <ul>
+      <li>👑 <b>سلسله و جانشینی:</b> پادشاه شما پیر می‌شود، بیمار می‌شود و می‌میرد. وارثش با صفات نیمه‌ارثی بر تخت می‌نشیند. وارث خردسال را <b>تربیت</b> کنید (نظامی/دیوانی/دیپلماتیک) تا پادشاه بهتری شود. اگر زیر ۱۶ سال به تخت برسد، <b>نیابت سلطنت</b> می‌شود و کشور نیمه‌فلج می‌ماند.</li>
+      <li>📜 <b>قانون جانشینی:</b> پنج قانون دارید — ارشدیت پسری، ارشدیت مطلق، ارشدیت خاندان، انتخابی و انتصابی. هر کدام روی ثبات، مشروعیت و وفاداری اشراف اثر متفاوت دارد. تغییرش پول و آبرو می‌برد.</li>
+      <li>🏰 <b>خاندان‌های بزرگ:</b> هر کشور ۳ تا ۵ خاندان اشرافی دارد با نفوذ و وفاداری. مالیات سنگین، جنگ طولانی، پادشاه خودکامه و بی‌ثباتی، وفاداری‌شان را می‌خورد. با <b>پیشکش</b> و <b>تکریم</b> آرامشان کنید یا <b>دست‌شان را کوتاه</b> کنید. اگر خیلی خشمگین شوند مدعی تاج می‌شوند و در نهایت <b>جنگ جانشینی</b> راه می‌اندازند — اما این نادر است و تقریباً همیشه نتیجه‌ی بدحکومتی.</li>
+      <li>💍 <b>ازدواج سیاسی:</b> با دربارهای دیگر وصلت کنید: روابط جهش می‌کند، خویشاوندان به‌سختی به هم می‌تازند، و ادعای متقابل بر تاج شکل می‌گیرد. اگر هم‌پیمانِ خویشاوندتان بی‌وارث بمیرد، ممکن است <b>اتحاد تاجی</b> رخ دهد و دو تاج بر یک سر بنشیند.</li>
+      <li>🌟 <b>قدرت‌های بزرگ:</b> هشت کشور برتر جهان جایگاه ویژه دارند. قدرت بزرگ می‌تواند کشورهای کوچک را به <b>حوزه‌ی نفوذ</b> خود بکشد و از تجارتشان سود ببرد.</li>
+      <li>🔥 <b>بحران بین‌المللی:</b> به‌جای اعلان جنگ ناگهانی، بر سر یک استان بحران شکل می‌گیرد. هر دو سو چند هفته وقت دارند پشتیبان جذب کنند. اگر یک طرف آشکارا قوی‌تر باشد، طرف دیگر بدون جنگ کوتاه می‌آید؛ اگر توازن باشد، جنگ درمی‌گیرد.</li>
+      <li>📜 <b>ادعای ارضی:</b> با جعل سند، ادعای خود بر سرزمین دیگران را تقویت کنید تا جنگ‌هایتان مشروع‌تر باشد.</li>
+      <li>🌐 <b>جهان داستان‌دار:</b> نقشه به <b>مناطق نام‌دار</b> تقسیم شده است. روی زمین <b>آثار باستانی</b> (جاده‌ی شاهی، آب‌راه کهن، دژ متروک…) و <b>منابع کمیاب</b> (سنگ گران‌بها، شوره، اسب اصیل…) پخش‌اند که بونوس واقعی می‌دهند. بخشی از جهان هم <b>سرزمین بکر</b> است با قبایل مستقل — با مأموریت استعماری بگیریدشان.</li>
+      <li>🏯 <b>بناهای عظیم:</b> شش بنای عظیم در جهان هست و هر کدام تنها <b>یک بار</b> ساخته می‌شود. گران و چندساله‌اند، اما اعتبار و قدرت بزرگی می‌دهند. رقبا هم دنبالشان‌اند.</li>
+    </ul>
     <h3>مُدهای نقشه</h3>
-    <p class="dim">جز سیاسی/زمین/جمعیت/تولید/ناآرامی، اکنون <b>فرهنگ</b>، <b>مذهب</b>، <b>دریایی</b>، <b>جدایی‌طلبی</b> و <b>ویرانی</b> هم دارید. نقشه فصل‌ها را نشان می‌دهد (برف زمستان، طلای پاییز) و شب‌ها چراغ شهرها روشن می‌شود.</p>
+    <p class="dim">جز سیاسی/زمین/جمعیت/تولید/ناآرامی، اکنون <b>فرهنگ</b>، <b>مذهب</b>، <b>دریایی</b>، <b>جدایی‌طلبی</b>، <b>ویرانی</b>، <b>خاندان‌ها</b>، <b>مناطق</b> و <b>قدرت</b> هم دارید. نقشه فصل‌ها را نشان می‌دهد (برف زمستان، طلای پاییز) و شب‌ها چراغ شهرها روشن می‌شود.</p>
     <h3>کلیدها</h3>
     <ul>
       <li><b>Space</b> مکث/ادامه — <b>1 تا 4</b> سرعت${noSpeed ? ' <span class="neg">(در «افسانه‌ای» فقط پاز/آن‌پاز فعال است)</span>' : ''}</li>
@@ -1525,6 +1720,40 @@ const TUTORIAL_PAGES = [
     'هشت شرکت بزرگ (غله، نساجی، معدن، فولاد، تسلیحات، کمپانی هند شرقی، بانک، راه‌آهن) می‌توانید تأسیس کنید — حداکثر چهار تا. هر کدام بخشی از اقتصاد را جهش می‌دهد.',
     'سرزمین‌های بی‌صاحب را می‌توان مستعمره کرد: مأموریت استعماری چند هفته طول می‌کشد و در پایان استان به شما می‌رسد.',
     'مراقب باشید: محاصره‌ی دریایی دشمن، مسیرهای تجاری و درآمد گمرکی شما را می‌خشکاند.',
+  ] },
+  { icon: '👑', title: 'سلسله: تاج فناپذیر است', items: [
+    'در خط ویکتوریا فانتزی، پادشاه شما یک نام تزئینی نیست: سن دارد، سلامت دارد، چهار مهارت دارد (کشورداری، نظامی، دیپلماسی، تدبیر) و صفاتی که مستقیماً روی کشور اثر می‌گذارند.',
+    'پادشاه پیر می‌شود و می‌میرد. وارثش — که صفات را نیمه‌ارثی برده — جانشین می‌شود. در یک بازی کامل معمولاً دو تا سه بار تاج دست‌به‌دست می‌شود.',
+    'وارث خردسال را تربیت کنید: هر سال زیر تربیت، یکی از مهارت‌هایش رشد می‌کند. پادشاه آینده را شما می‌سازید.',
+    'اگر وارث زیر ۱۶ سال به تخت برسد، نیابت سلطنت می‌شود: مشروعیت سقوط می‌کند و اشراف قدرت می‌گیرند. اگر هیچ وارثی نباشد، بحران جانشینی و شاید از دست رفتن تاج.',
+    'قانون جانشینی را از پنل 👑 عوض کنید. «انتخابی» اشراف را راضی می‌کند اما تاج را لرزان؛ «ارشدیت پسری» پایدار است اما اگر پسری نباشد فاجعه است.',
+  ] },
+  { icon: '🏰', title: 'خاندان‌های بزرگ', items: [
+    'هر کشور سه تا پنج خاندان اشرافی دارد: سپاهی، زمین‌دار، بازرگان، روحانی و دیوانی. هر کدام نفوذ، وفاداری و استان‌های تحت کنترل دارند.',
+    'خاندان وفادار به کشور بونوس می‌دهد. خاندان خشمگین بونوس را پس می‌گیرد و کینه می‌انبارد.',
+    'وفاداری از چیزهای واقعی آب می‌خورد: مالیات سنگین، جنگ طولانی، بی‌ثباتی، نیابت سلطنت و پادشاه خودکامه یا سنگ‌دل. پادشاه دادگر و دلربا آرامشان می‌کند.',
+    'ابزارهای شما: «پیشکش» (پول در برابر وفاداری)، «تکریم» (وفاداری زیاد اما دیگران حسود می‌شوند) و «کوتاه‌کردن دست» (نفوذ کم، اما کینه زیاد).',
+    'اگر خاندانی به‌قدر کافی خشمگین و پرنفوذ شود، مدعی تاج می‌شود و در بدترین حالت جنگ جانشینی راه می‌اندازد. این نادر است — تقریباً همیشه نتیجه‌ی سال‌ها بدحکومتی. فرمانروای دادگر کمابیش هرگز آن را نمی‌بیند.',
+  ] },
+  { icon: '💍', title: 'ازدواج سیاسی و اتحاد تاجی', items: [
+    'از پنل 👑 با دربارهای دیگر وصلت کنید. روابط ۲۲ واحد جهش می‌کند و پیوند خویشاوندی برقرار می‌شود.',
+    'خویشاوندان به‌سختی به هم حمله می‌کنند — شبکه‌ی وصلت‌ها یک سپر دیپلماتیک واقعی است.',
+    'وصلت، ادعای متقابل بر تاج طرف مقابل می‌سازد. اگر هم‌پیمانِ خویشاوندتان بی‌وارث بمیرد، ممکن است اتحاد تاجی رخ دهد و شما هر دو تاج را داشته باشید. بسیار نادر، اما ممکن.',
+    'دربارهای دیگر هم با هم وصلت می‌کنند؛ شبکه‌ی خویشاوندی جهان زنده است و در پنل سلسله دنبالش کنید.',
+  ] },
+  { icon: '🌟', title: 'قدرت‌های بزرگ و بحران‌ها', items: [
+    'هشت کشور برتر جهان «قدرت بزرگ» شمرده می‌شوند. جایگاه از تولید، ارتش، ناوگان، استان و اعتبار می‌آید و مدام جابه‌جا می‌شود.',
+    'قدرت بزرگ می‌تواند کشور کوچک را به حوزه‌ی نفوذ خود بکشد و از تجارت و اعتبارش سود ببرد. اگر خودتان زیر نفوذ کسی باشید، می‌توانید بیرون بیایید — به بهای رابطه.',
+    'جنگ‌ها دیگر ناگهانی شروع نمی‌شوند: نخست بحران بین‌المللی بر سر یک استان شکل می‌گیرد و چند هفته طول می‌کشد.',
+    'در بحران، هر دو سو پشتیبان جذب می‌کنند. اگر یک طرف آشکارا قوی‌تر شود، طرف دیگر بدون جنگ عقب می‌نشیند (و استان یا آبرو را می‌بازد). اگر توازن باشد، جنگ درمی‌گیرد و پشتیبانان هم وارد می‌شوند.',
+    'می‌توانید در بحران دیگران هم طرف بگیرید — دوستی می‌خرید و دشمنی.',
+  ] },
+  { icon: '🌐', title: 'جهانِ داستان‌دار', items: [
+    'نقشه هر بار تازه ساخته می‌شود، اما دیگر بی‌روح نیست: به مناطق نام‌دار تقسیم شده («کرانه‌ی زرین»، «دشت‌های بی‌پایان»…) که در زوم دور روی نقشه دیده می‌شوند.',
+    'روی زمین آثار باستانی پخش‌اند: جاده‌ی شاهی، آب‌راه کهن، ویرانه‌ی کتابخانه، دژ متروک، بازار بزرگ و… هر کدام بونوس واقعی به استان می‌دهند. فتحشان ارزش دارد.',
+    'منابع کمیاب هم هست: سنگ گران‌بها، شوره (باروت)، اسب اصیل، رنگ ارغوان، نقره و… خوراک تجارت و انگیزه‌ی جنگ.',
+    'حدود یک‌ششم جهان سرزمین بکر است با قبایل مستقل. با مأموریت استعماری (از پنل استان یا تجارت) آن‌ها را به قلمرو بیفزایید — اما رقبا هم همین را می‌خواهند.',
+    'شش بنای عظیم در جهان وجود دارد و هر کدام تنها یک بار ساخته می‌شود: کاخ بزرگ، فرهنگستان، آب‌راه بزرگ، ارگ استوار، نیایشگاه بزرگ و تالار بورس. گران و چندساله، اما شکوه‌آفرین.',
   ] },
   { icon: '⚡', title: 'رویدادها و تصمیم‌ها', items: [
     'در جریان بازی رویدادهای تصادفی پیش می‌آیند؛ هر تصمیم واقعاً روی کشور اثر می‌گذارد (پول، ارتش، ناآرامی، روابط…).',

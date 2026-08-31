@@ -6,7 +6,9 @@
   "scripts": {
     "start": "python3 -m http.server 8080",
     "test": "node scripts/smoke.mjs && node scripts/war.mjs && node scripts/systems.mjs && node scripts/dom-test.mjs",
-    "test:systems": "node scripts/systems.mjs"
+    "test:systems": "node scripts/systems.mjs",
+    "test:full": "npm test && node scripts/dynasty-test.mjs",
+    "test:dynasty": "node scripts/dynasty-test.mjs"
   },
   "devDependencies": {
     "jsdom": "*"
