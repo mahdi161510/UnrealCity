@@ -5,10 +5,11 @@
   "description": "Grand strategy web game inspired by Victoria 3 (Persian UI)",
   "scripts": {
     "start": "python3 -m http.server 8080",
-    "test": "node scripts/smoke.mjs && node scripts/war.mjs && node scripts/systems.mjs && node scripts/dom-test.mjs",
+    "test": "node scripts/smoke.mjs && node scripts/war.mjs && node scripts/systems.mjs && node scripts/dom-test.mjs && node scripts/event-test.mjs",
     "test:systems": "node scripts/systems.mjs",
     "test:full": "npm test && node scripts/dynasty-test.mjs",
-    "test:dynasty": "node scripts/dynasty-test.mjs"
+    "test:dynasty": "node scripts/dynasty-test.mjs",
+    "test:events": "node scripts/event-test.mjs"
   },
   "devDependencies": {
     "jsdom": "*"

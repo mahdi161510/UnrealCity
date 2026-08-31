@@ -385,6 +385,71 @@ step('۳۰ تیک با همه‌ی سامانه‌های تازه فعال', () 
   }
   for (const nm of ['court', 'navy', 'spy', 'society', 'trade']) openP(nm);
 });
+step('پنل شورای درباری: کرسی‌ها، فساد، تربیت وارث', () => {
+  const body = openP('council');
+  const pn = S.nations[S.playerId];
+  if (!body.querySelector('.seat-card')) throw new Error('کرسی‌های شورا رندر نشد');
+  pn.treasury += 40000;
+
+  // بازرسی فساد باید عدد را پایین بیاورد
+  pn.corruption = 40;
+  UIx.renderPanel();
+  const audit = document.querySelector('#panel-body [data-act="corr-audit"]');
+  if (!audit) throw new Error('دکمه‌ی بازرسی نیست');
+  audit.click();
+  if (!(pn.corruption < 40)) throw new Error('بازرسی فساد را کم نکرد');
+
+  // پاکسازی بزرگ (با تأیید)
+  const before = pn.corruption;
+  pn.corruption = 60;
+  UIx.renderPanel();
+  document.querySelector('#panel-body [data-act="corr-purge"]').click();
+  document.getElementById('confirm-yes').click();
+  if (!(pn.corruption < 60)) throw new Error('پاکسازی کار نکرد');
+
+  // گماردن روی یک کرسی خالی
+  UIx.renderPanel();
+  const change = document.querySelector('#panel-body [data-act="seat-change"]');
+  if (change) {
+    change.click();
+    const row = document.querySelector('#confirm-text .cand-row');
+    if (row) {
+      row.click();
+      const k = change.dataset.k;
+      if (!pn.council?.[k]) throw new Error('انتصاب انجام نشد');
+    }
+    // مودال باید بسته شده باشد
+    if (document.getElementById('confirm-modal').style.display === 'flex') {
+      document.getElementById('confirm-no').click();
+    }
+  }
+
+  // تربیت وارث
+  UIx.renderPanel();
+  const edu = document.querySelector('#panel-body [data-act="edu-heir"]');
+  if (edu) {
+    const heir = pn.dyn.heirId;
+    const r = S.royals.find(x => x.id === heir);
+    if (r) {
+      const before2 = r.stat[edu.dataset.k];
+      pn.eduCd = 0;
+      edu.click();
+      if (!(r.stat[edu.dataset.k] >= before2)) throw new Error('تربیت وارث اثر نکرد');
+    }
+  }
+
+  // پنل توطئه: یک توطئه‌ی ساختگی باید رندر شود
+  const fac = pn.dyn.factions[0];
+  pn.plot = { headId: fac.headId, facKey: fac.key, target: 'ruler', prog: 50, known: true, started: S.week };
+  UIx.renderPanel();
+  const b2 = document.getElementById('panel-body');
+  if (!b2.querySelector('.plot-box')) throw new Error('جعبه‌ی توطئه رندر نشد (plot=' + JSON.stringify(pn.plot) + ')');
+  document.querySelector('#panel-body [data-act="plot-guard"]').click();
+  if (!(pn.plot.prog < 50)) throw new Error('تشدید محافظت اثر نکرد');
+  document.querySelector('#panel-body [data-act="plot-arrest"]').click();
+  document.getElementById('confirm-yes').click();
+  if (pn.plot) throw new Error('دستگیری توطئه‌گر انجام نشد');
+});
 step('پنل سلسله + قانون جانشینی + خاندان‌ها', () => {
   const body = openP('dynasty');
   const pn = S.nations[S.playerId];

@@ -185,6 +185,15 @@ function makeFaction(S, n, rng, kind, usedNames) {
   const head = makeRoyal(S, { rng, male: rng() < 0.8, age: 30 + Math.floor(rng() * 28), house: nm, nation: n.id, base: 8 });
   head.isNoble = true;
   S.royals.push(head);
+  // خاندان بزرگ یعنی چند چهره، نه یک نفر: فرزندان و خویشان که نامزد کرسی‌های دربار می‌شوند
+  const kids = 1 + Math.floor(rng() * 3);
+  for (let i = 0; i < kids; i++) {
+    const age = Math.max(2, head.age - 20 - Math.floor(rng() * 8) + Math.floor(rng() * 14));
+    const kid = makeRoyal(S, { rng, father: head, age: clamp(age, 2, head.age - 16), house: nm, nation: n.id, base: 8 });
+    kid.isNoble = true;
+    head.childrenIds.push(kid.id);
+    S.royals.push(kid);
+  }
   return {
     key: kind,
     house: nm,
@@ -384,9 +393,54 @@ function royalNews(S, nid, icon, text) {
 export { royalNews };
 
 // ================== شبیه‌سازی هفتگی ==================
+// سرِ خاندان که می‌میرد باید جانشین بگیرد، وگرنه خاندان بی‌سر و بی‌اثر می‌شود
+function succeedFactionHeads(S) {
+  for (const n of S.nations) {
+    if (!n.alive || !n.dyn?.factions) continue;
+    for (const f of n.dyn.factions) {
+      const h = royalById(S, f.headId);
+      if (h?.alive) continue;
+      // نخست فرزند بالغ، سپس خویشاوند هم‌خاندان، در نهایت وارثی تازه
+      let succ = null;
+      if (h) {
+        const kids = childrenOf(S, h).filter(c => c.alive && c.age >= 16);
+        if (kids.length) succ = kids.sort((a, b) => (b.male - a.male) || (b.age - a.age))[0];
+      }
+      if (!succ) {
+        const kin = S.royals.filter(r => r.alive && r.nation === n.id && r.house === f.house && r.age >= 16 && r.id !== f.headId);
+        if (kin.length) succ = kin.sort((a, b) => b.age - a.age)[0];
+      }
+      if (!succ) {
+        succ = makeRoyal(S, { male: Math.random() < 0.8, age: 26 + Math.floor(Math.random() * 26), house: f.house, nation: n.id, base: 8 });
+        succ.isNoble = true;
+        S.royals.push(succ);
+      }
+      f.headId = succ.id;
+      succ.isNoble = true;
+      // نسل تازه‌ی خاندان: بدون این، دربار در چند دهه از چهره خالی می‌شود
+      const kin = S.royals.filter(r => r.alive && r.nation === n.id && r.house === f.house);
+      if (kin.length < 4) {
+        const kids = 1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < kids; i++) {
+          const kid = makeRoyal(S, { father: succ, age: 2 + Math.floor(Math.random() * 14), house: f.house, nation: n.id, base: 8 });
+          kid.isNoble = true;
+          succ.childrenIds.push(kid.id);
+          S.royals.push(kid);
+        }
+      }
+      // انتقال قدرت هموار نیست: خاندانِ در حال جابه‌جایی کمی متزلزل می‌شود
+      f.power = clamp(f.power - 2 - Math.random() * 4, 4, 100);
+      if (n.id === S.playerId) {
+        S.royalNews.push({ wk: S.week, icon: '🏰', txt: `${succ.name} سرپرستی خاندان ${f.house} را به دست گرفت.` });
+      }
+    }
+  }
+}
+
 export function simDynasty(S) {
   if (S.timelineId !== 'victoria' || !S.royals) return;
   const yearTick = S.week % 52 === 0;
+  if (S.week % 13 === 0) succeedFactionHeads(S);
 
   // ---- پیری و سلامت (سالانه) ----
   if (yearTick && S.week > 0) {

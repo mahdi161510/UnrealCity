@@ -12,6 +12,7 @@ import { initTrade } from './trade.js';
 import { initDynasty, resetRoyalUid } from './dynasty.js';
 import { initWorld } from './world.js';
 import { refreshGreatPowers, initCrises } from './greatpower.js';
+import { initCouncil } from './council.js';
 
 export const SAVE_KEY = 'unrealcity1836_save_v5';
 
@@ -164,7 +165,7 @@ export function newGame(seed, opts) {
     log: [],
     pendingEvent: null,
     eventCd: 20,
-    evCd: {}, evSeen: {},
+    evCd: {}, evSeen: {}, evFlags: {}, evProv: null,
     scheduled: [],
     family: fam,
     nextFamId: 6,
@@ -188,6 +189,7 @@ export function newGame(seed, opts) {
   resetRoyalUid();
   initWorld(state);
   initDynasty(state);
+  initCouncil(state);
   initCrises(state);
   refreshGreatPowers(state);
   initEspionage(state);
@@ -240,6 +242,7 @@ export function saveGame(state) {
       tariff: n.tariff, routes: n.routes, companies: n.companies, colonies: n.colonies,
       dyn: n.dyn, sphere: n.sphere, sphereSince: n.sphereSince,
       greatPower: n.greatPower, gpRank: n.gpRank, powerScore: n.powerScore, ruler: n.ruler,
+      council: n.council, corruption: n.corruption, plot: n.plot, heirRisk: n.heirRisk, eduCd: n.eduCd,
     })),
     provs: state.map.provs.map(p => ({
       owner: p.owner, controller: p.controller, pops: p.pops, bld: p.bld, queue: p.queue,
@@ -255,7 +258,7 @@ export function saveGame(state) {
     nextArmyId: state.nextArmyId,
     wars: state.wars, nextWarId: state.nextWarId,
     log: state.log.slice(-60), stats: state.stats, victory: state.victory,
-    evCd: state.evCd, evSeen: state.evSeen, scheduled: state.scheduled,
+    evCd: state.evCd, evSeen: state.evSeen, evFlags: state.evFlags, scheduled: state.scheduled,
     family: state.family, nextFamId: state.nextFamId,
     royals: state.royals, royalNews: state.royalNews,
     regions: state.regions, wonders: state.wonders,
@@ -293,6 +296,7 @@ export function loadGame() {
   }
   if (dyn.evCd) state.evCd = dyn.evCd;
   if (dyn.evSeen) state.evSeen = dyn.evSeen;
+  if (dyn.evFlags) state.evFlags = dyn.evFlags;
   if (dyn.scheduled) state.scheduled = dyn.scheduled;
   if (dyn.family) { state.family = dyn.family; state.nextFamId = dyn.nextFamId || state.nextFamId; }
   if (dyn.phase) state.phase = dyn.phase;

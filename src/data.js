@@ -1,3 +1,7 @@
+import { DYN_EVENTS } from './events-dyn.js';
+import { WORLD_EVENTS } from './events-world.js';
+import { MORE_EVENTS } from './events-more.js';
+import { EXTRA_EVENTS } from './events-extra.js';
 // ---------- تعاریف ثابت بازی: کالاها، ساختمان‌ها، فناوری، قوانین، ملت‌ها، رویدادها ----------
 
 export const GOODS = {
@@ -406,7 +410,7 @@ export const EVENTS = [
       { label: 'بهره‌برداری پنهان', hint: 'امتیاز پژوهش +۲۵، ریسک رسوایی (اعتبار −۱)', fx: { research: 25, prestige: -1 } },
       { label: 'نابودی و بی‌گناهی', hint: 'اعتبار +۲، روحانیون خرسند', fx: { prestige: 2, approval: { clergy: 4 } } },
     ] },
-];
+].concat(DYN_EVENTS, WORLD_EVENTS, MORE_EVENTS, EXTRA_EVENTS);
 
 // ---------------- عصرها (گشایش تدریجی در گذر زمان) ----------------
 export const ERAS = [

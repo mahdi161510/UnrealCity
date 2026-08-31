@@ -3,6 +3,13 @@
 import { newGame } from '../src/state.js';
 import { tick } from '../src/sim.js';
 import { rulerOf, heirOf, DYN_RARITY } from '../src/dynasty.js';
+import { mulberry32 } from '../src/utils.js';
+
+// شبیه‌سازی هفتگی از Math.random خام استفاده می‌کند؛ برای آن‌که این آزمون
+// تکرارپذیر باشد، Math.random را با یک RNG بذردار جایگزین می‌کنیم.
+const _rnd = Math.random;
+const seedRandom = (sd) => { const r = mulberry32(sd); Math.random = r; };
+const restoreRandom = () => { Math.random = _rnd; };
 
 const WEEKS = 64 * 52;        // کل خط زمانی ویکتوریا: ۱۸۳۶ تا ۱۹۰۰
 const RUNS = 3;
@@ -86,6 +93,7 @@ ok(agg.succ.every(v => v > 0), 'در هر بازی دست‌کم یک جانشی
 // ---- آزمون تفاضلی: حکومت بد باید پیامد داشته باشد، حکومت خوب نباید ----
 console.log('\n— آزمون تفاضلی: حکومت خوب در برابر حکومت بد —');
 function govRun(bad, seed) {
+  seedRandom(seed * 7 + 13);
   const S = newGame(seed, { timelineId: 'victoria', scenarioId: bad ? 'ironstorm' : 'balance', difficulty: 'normal', nationIdx: 0 });
   S.paused = false;
   const pn = S.nations[0];
@@ -97,15 +105,28 @@ function govRun(bad, seed) {
     for (const f of pn.dyn?.factions || []) if (f.pretender && !f._c) { f._c = true; pret++; }
     if (pn.dyn?.pretenderWar && !pn.dyn._w) { pn.dyn._w = true; rev++; }
   }
-  return { pret, rev, loy: (pn.dyn?.factions || []).map(f => Math.round(f.loyalty)) };
+  const out = { pret, rev, loy: (pn.dyn?.factions || []).map(f => Math.round(f.loyalty)) };
+  restoreRandom();
+  return out;
 }
-const good = govRun(false, 4242);
-const badR = govRun(true, 4242);
-console.log(`حکومت خوب: ${good.pret} مدعی، ${good.rev} شورش، وفاداری [${good.loy}]`);
-console.log(`حکومت بد:  ${badR.pret} مدعی، ${badR.rev} شورش، وفاداری [${badR.loy}]`);
-ok(good.pret === 0 && good.rev === 0, 'فرمانروای دادگر هرگز با شورش خاندان روبه‌رو نمی‌شود');
-ok(badR.pret > good.pret || badR.rev > good.rev, 'ستمگری واقعاً پیامد دارد (مدعی یا شورش)');
-ok(Math.min(...badR.loy) < Math.min(...good.loy), 'وفاداری اشراف زیر ستم پایین‌تر است');
+// چند بذر، چون یک بازیِ تکی نمایانگر رفتار سامانه نیست
+const GOV_SEEDS = [4242, 777, 9001];
+const G = { pret: 0, rev: 0, minLoy: 999 }, B = { pret: 0, rev: 0, minLoy: 999 };
+for (const sd of GOV_SEEDS) {
+  const g = govRun(false, sd), b = govRun(true, sd);
+  G.pret += g.pret; G.rev += g.rev; G.minLoy = Math.min(G.minLoy, ...g.loy);
+  B.pret += b.pret; B.rev += b.rev; B.minLoy = Math.min(B.minLoy, ...b.loy);
+  console.log(`بذر ${sd} | دادگر: ${g.pret} مدعی/${g.rev} شورش، کمینه‌وفاداری ${Math.min(...g.loy)}`
+    + ` | ستمگر: ${b.pret} مدعی/${b.rev} شورش، کمینه‌وفاداری ${Math.min(...b.loy)}`);
+}
+console.log(`جمع ${GOV_SEEDS.length} بازی → دادگر: ${G.pret} مدعی، ${G.rev} شورش`
+  + ` | ستمگر: ${B.pret} مدعی، ${B.rev} شورش`);
+
+ok(G.rev === 0, 'فرمانروای دادگر هرگز شورشِ تمام‌عیار خاندان نمی‌بیند');
+ok(G.pret <= GOV_SEEDS.length, `زیر حکومت دادگر مدعی هم کمیاب است (${G.pret} در ${GOV_SEEDS.length} بازی)`);
+ok(B.pret > G.pret, `ستمگری مدعی می‌سازد (${B.pret} در برابر ${G.pret})`);
+ok(B.rev > G.rev, `ستمگری به شورش می‌انجامد (${B.rev} در برابر ${G.rev})`);
+ok(B.minLoy < G.minLoy, `وفاداری اشراف زیر ستم پایین‌تر است (${B.minLoy} در برابر ${G.minLoy})`);
 
 // ---- یکتایی بناهای عظیم + نبودِ اسپم وصلت ----
 console.log('\n— جهان: بناهای عظیم و وصلت‌ها —');

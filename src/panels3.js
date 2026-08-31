@@ -8,6 +8,7 @@ import {
   LANDMARKS, RARE_RES, WONDERS, WONDER_KEYS, worldMods, regionOf, canBuildWonder,
 } from './world.js';
 import { powerScore, sphereLord, sphereOf, claimStrength, canSphere } from './greatpower.js';
+import { SEATS, SEAT_KEYS, seatScore, candidatesFor } from './council.js';
 
 // ---------- کمکی ----------
 function bar(v, max, cls, h = 6) {
@@ -459,4 +460,118 @@ export function panelPowers(S, UI, R) {
   }
 
   return { title: 'قدرت‌های بزرگ', html };
+}
+
+// ---------- پنل شورای درباری، فساد و دسیسه ----------
+export function panelCouncil(S, UI, R) {
+  const n = S.nations[S.playerId];
+  if (S.timelineId !== 'victoria' || !n.dyn) {
+    return { title: '🏛️ شورای درباری', html: '<div class="empty">شورای درباری تنها در خط زمانی «ویکتوریا فانتزی» برپاست.</div>' };
+  }
+  const ruler = rulerOf(S, n.id);
+  const heir = heirOf(S, n.id);
+  const corr = n.corruption || 0;
+  const corrCls = corr < 15 ? 'good' : corr < 35 ? 'mid' : 'bad';
+  let h = '';
+
+  // --- فساد ---
+  h += `<div class="sec"><div class="sec-t">💰 فساد دیوان</div>
+    <div class="row"><span>میزان فساد</span><b class="${corrCls}">${fd1(corr)}٪</b></div>
+    ${bar(corr, 100, corrCls, 8)}
+    <div class="hint">فساد از درآمد مالیاتی می‌کاهد، تولید را کند می‌کند و ناآرامی می‌سازد. شورای درست‌کار جلویش را می‌گیرد.</div>
+    <div class="btn-row">
+      <button class="btn sm" data-act="corr-audit">🔍 بازرسی (£۳هزار)</button>
+      <button class="btn sm warn" data-act="corr-purge">⚔️ پاکسازی بزرگ</button>
+    </div></div>`;
+
+  // --- کرسی‌ها ---
+  h += `<div class="sec"><div class="sec-t">🏛️ کرسی‌های شورا</div>`;
+  for (const k of SEAT_KEYS) {
+    const seat = SEATS[k];
+    const c = n.council?.[k];
+    const r = c ? royalById(S, c.rid) : null;
+    if (r?.alive) {
+      const sc = seatScore(r, k);
+      const hon = c.honesty || 50;
+      const honCls = hon > 65 ? 'good' : hon > 40 ? 'mid' : 'bad';
+      h += `<div class="seat-card">
+        <div class="seat-h"><span class="seat-i">${seat.icon}</span>
+          <div class="seat-n"><b>${seat.name}</b><small>${esc(seat.desc)}</small></div>
+        </div>
+        <div class="row"><span>${esc(r.name)} <small class="dim">(${esc(r.house)})</small></span>${statDots(sc)}</div>
+        <div class="row"><span>درست‌کاری</span><b class="${honCls}">${fd(hon)}٪</b></div>
+        ${traitChips(r.traits)}
+        <div class="btn-row"><button class="btn xs" data-act="seat-change" data-k="${k}">تعویض</button>
+          <button class="btn xs warn" data-act="seat-dismiss" data-k="${k}">عزل</button></div>
+      </div>`;
+    } else {
+      h += `<div class="seat-card empty-seat">
+        <div class="seat-h"><span class="seat-i">${seat.icon}</span>
+          <div class="seat-n"><b>${seat.name}</b><small class="bad">خالی — دیوان لنگ می‌زند</small></div></div>
+        <div class="btn-row"><button class="btn xs" data-act="seat-change" data-k="${k}">گماردن</button></div>
+      </div>`;
+    }
+  }
+  h += `</div>`;
+
+  // --- دسیسه ---
+  h += `<div class="sec"><div class="sec-t">🕯️ دسیسه</div>`;
+  if (n.plot?.known) {
+    const head = royalById(S, n.plot.headId);
+    const tgt = n.plot.target === 'heir' ? (heir?.name || 'وارث') : (ruler?.name || 'فرمانروا');
+    h += `<div class="plot-box bad">
+      <div><b>توطئه‌ای کشف شده است!</b></div>
+      <div class="row"><span>سردسته</span><b>${esc(head?.name || '؟')}</b></div>
+      <div class="row"><span>هدف</span><b>${esc(tgt)}</b></div>
+      <div class="row"><span>پیشرفت نقشه</span><b>${fd(n.plot.prog)}٪</b></div>
+      ${bar(n.plot.prog, 100, 'bad', 7)}
+      <div class="btn-row">
+        <button class="btn sm" data-act="plot-arrest">⛓️ دستگیری (کینه‌ی خاندان)</button>
+        <button class="btn sm" data-act="plot-guard">🛡️ تشدید محافظت (£۲هزار)</button>
+      </div></div>`;
+  } else if (n.plot) {
+    h += `<div class="hint">هیچ توطئه‌ی شناخته‌شده‌ای نیست… اما زمزمه‌هایی در راهروها هست.</div>`;
+  } else {
+    h += `<div class="hint good">دربار آرام است. هیچ توطئه‌ای در جریان نیست.</div>`;
+  }
+  h += `</div>`;
+
+  // --- وارث و رقابت ---
+  if (heir) {
+    h += `<div class="sec"><div class="sec-t">👑 وارث و تربیت او</div>
+      <div class="row"><span>${esc(heir.name)}</span><small class="dim">${heir.age} ساله</small></div>
+      <div class="row"><span>دیوان</span>${statDots(heir.stat.admin)}</div>
+      <div class="row"><span>رزم</span>${statDots(heir.stat.martial)}</div>
+      <div class="row"><span>دیپلماسی</span>${statDots(heir.stat.diplo)}</div>
+      <div class="row"><span>نیرنگ</span>${statDots(heir.stat.guile)}</div>`;
+    if (heir.age <= 22) {
+      h += `<div class="hint">استاد بگمارید تا وارث ورزیده‌تر شود (£۲۲۰۰ هر بار).</div>
+      <div class="btn-row">
+        <button class="btn xs" data-act="edu-heir" data-k="admin">📜 دیوان</button>
+        <button class="btn xs" data-act="edu-heir" data-k="martial">🗡️ رزم</button>
+        <button class="btn xs" data-act="edu-heir" data-k="diplo">🤝 دیپلماسی</button>
+        <button class="btn xs" data-act="edu-heir" data-k="guile">🎭 نیرنگ</button>
+      </div>`;
+    } else {
+      h += `<div class="hint dim">${esc(heir.name)} از سن آموزش گذشته است.</div>`;
+    }
+    if (n.heirRisk) h += `<div class="warn-box">⚠️ برادرِ رقیب هواداران بیشتری از وارث دارد. خطر جنگ جانشینی جدی است.</div>`;
+    h += `</div>`;
+  }
+
+  // --- شاهزادگان ---
+  if (ruler) {
+    const kids = childrenOf(S, ruler).filter(c => c.age >= 14);
+    if (kids.length) {
+      h += `<div class="sec"><div class="sec-t">🎭 شاهزادگان و پشتیبانی</div>`;
+      for (const c of kids.sort((a, b) => (b.support || 0) - (a.support || 0))) {
+        const sup = c.support || 0;
+        const isHeir = heir && c.id === heir.id;
+        h += `<div class="row"><span>${isHeir ? '👑 ' : ''}${esc(c.name)} <small class="dim">${c.age}</small>${c.slighted ? ' <small class="bad">دل‌آزرده</small>' : ''}</span><b>${fd(sup)}٪</b></div>
+          ${bar(sup, 100, isHeir ? 'good' : sup > 55 ? 'mid' : '', 5)}`;
+      }
+      h += `</div>`;
+    }
+  }
+  return { title: '🏛️ شورای درباری', html: h };
 }

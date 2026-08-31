@@ -6,7 +6,8 @@ import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
 import { REBEL } from './sim.js';
 import { panelCourt, panelNavy, panelSpy, panelSociety, panelTrade } from './panels2.js';
-import { panelDynasty, panelWorld, panelPowers } from './panels3.js';
+import { panelDynasty, panelWorld, panelPowers, panelCouncil } from './panels3.js';
+import { SEATS, SEAT_KEYS, seatScore, candidatesFor, appoint, dismiss, educateHeir, purgeCorruption } from './council.js';
 import { rulerOf, heirOf, royalById, recalcHeir, arrangeMarriage, SUCCESSION_LAWS } from './dynasty.js';
 import { startWonder, WONDERS, LANDMARKS, RARE_RES, regionOf } from './world.js';
 import { addToSphere, leaveSphere, fabricateClaim, startCrisis, crisisAddBacker } from './greatpower.js';
@@ -353,6 +354,7 @@ export function renderPanel() {
     society: () => panelSociety(S, UI, R),
     trade:   () => panelTrade(S, UI, R),
     dynasty: () => panelDynasty(S, UI, R),
+    council: () => panelCouncil(S, UI, R),
     world:   () => panelWorld(S, UI, R),
     powers:  () => panelPowers(S, UI, R),
   };
@@ -1187,6 +1189,66 @@ function doAction(act, b) {
       toast(r.ok ? '🏴' : '⚠️', r.ok ? 'مأموریت استعماری آغاز شد' : r.why);
       break;
     }
+    // ---------- شورای درباری، فساد، دسیسه، تربیت وارث ----------
+    case 'corr-audit': { const r = purgeCorruption(S, pn, 'audit'); toast(r.ok ? '🔍' : '⛔', r.ok ? r.msg : r.why); break; }
+    case 'corr-purge': {
+      confirmBox('پاکسازی بزرگ', 'فساد به‌شدت کم می‌شود، اما خاندان‌های بزرگ کینه می‌گیرند و ناآرامی بالا می‌رود. مطمئنید؟', () => {
+        const r = purgeCorruption(S, pn, 'purge'); toast(r.ok ? '⚔️' : '⛔', r.ok ? r.msg : r.why); renderPanel(); refreshTopbar();
+      });
+      break;
+    }
+    case 'seat-dismiss': {
+      const k = b.dataset.k;
+      confirmBox('عزل از شورا', `${SEATS[k].name} را عزل می‌کنید؟ خاندانش کینه خواهد گرفت.`, () => {
+        dismiss(S, pn, k); toast('🏛️', 'عزل انجام شد'); renderPanel();
+      });
+      break;
+    }
+    case 'seat-change': {
+      const k = b.dataset.k;
+      const cands = candidatesFor(S, pn, k);
+      if (!cands.length) { toast('⛔', 'نامزد شایسته‌ای در دربار نیست'); break; }
+      const rows = cands.map(c => {
+        const sc = seatScore(c.r, k);
+        const kindTxt = c.kind === 'prince' ? 'شاهزاده' : `سرِ خاندان ${esc(c.fac?.house || '')}`;
+        return `<button class="cand-row" data-rid="${c.r.id}">
+          <span class="cand-n"><b>${esc(c.r.name)}</b><small>${kindTxt}</small></span>
+          <span class="cand-s">${'●'.repeat(Math.round(sc / 4))}${'○'.repeat(Math.max(0, 5 - Math.round(sc / 4)))} <small>${sc}/۲۰</small></span>
+        </button>`;
+      }).join('');
+      pickBox(`گماردن ${SEATS[k].name}`, rows, rid => {
+        const r = appoint(S, pn, k, +rid);
+        toast(r.ok ? '🏛️' : '⛔', r.ok ? 'انتصاب انجام شد' : r.why);
+        renderPanel(); refreshTopbar();
+      });
+      break;
+    }
+    case 'edu-heir': {
+      const r = educateHeir(S, pn, b.dataset.k);
+      toast(r.ok ? '📚' : '⛔', r.ok ? 'استاد تازه گمارده شد' : r.why);
+      break;
+    }
+    case 'plot-arrest': {
+      if (!pn.plot) break;
+      const head = royalById(S, pn.plot.headId);
+      confirmBox('دستگیری توطئه‌گر', `${head?.name || 'او'} دستگیر می‌شود. خاندانش کینه‌ی سنگینی خواهد گرفت.`, () => {
+        const f = (pn.dyn?.factions || []).find(x => x.key === pn.plot?.facKey);
+        if (f) { f.grudge = Math.min(100, (f.grudge || 0) + 20); f.loyalty = Math.max(0, f.loyalty - 15); f.power = Math.max(4, f.power - 6); }
+        pn.plot = null;
+        pn.legitimacy = Math.min(100, (pn.legitimacy ?? 60) + 4);
+        toast('⛓️', 'توطئه‌گر دستگیر شد');
+        renderPanel(); refreshTopbar();
+      });
+      break;
+    }
+    case 'plot-guard': {
+      if (pn.treasury < 2000) { toast('⛔', 'خزانه کافی نیست'); break; }
+      pn.treasury -= 2000;
+      if (pn.plot) pn.plot.prog = Math.max(0, pn.plot.prog - 35);
+      pn.counterInt = (pn.counterInt || 0) + 5;
+      toast('🛡️', 'محافظت دربار تشدید شد');
+      break;
+    }
     case 'abandon-col': { abandonColony(S, pn, +b.dataset.p); toast('🏳️', 'مأموریت رها شد'); break; }
 
     // ---------- سلسله ----------
@@ -1515,6 +1577,22 @@ function checkWarOffers() {
 }
 
 // ================== تاییدیه و تست و پایان ==================
+// انتخاب از میان چند نامزد (مودال فهرستی)
+function pickBox(title, rowsHtml, onPick) {
+  const m = document.getElementById('confirm-modal');
+  m.style.display = 'flex';
+  document.getElementById('confirm-title').textContent = title;
+  const tx = document.getElementById('confirm-text');
+  tx.innerHTML = `<div class="cand-list">${rowsHtml}</div>`;
+  const yes = document.getElementById('confirm-yes');
+  yes.style.display = 'none';
+  const close = () => { m.style.display = 'none'; yes.style.display = ''; tx.innerHTML = ''; };
+  tx.querySelectorAll('.cand-row').forEach(btn => {
+    btn.onclick = () => { const rid = btn.dataset.rid; close(); onPick(rid); };
+  });
+  document.getElementById('confirm-no').onclick = close;
+}
+
 function confirmBox(title, text, onYes, yesLabel = 'تایید') {
   const m = document.getElementById('confirm-modal');
   m.style.display = 'flex';
@@ -1611,7 +1689,13 @@ export function showHelp(inGame) {
       <li>📜 <b>ادعای ارضی:</b> با جعل سند، ادعای خود بر سرزمین دیگران را تقویت کنید تا جنگ‌هایتان مشروع‌تر باشد.</li>
       <li>🌐 <b>جهان داستان‌دار:</b> نقشه به <b>مناطق نام‌دار</b> تقسیم شده است. روی زمین <b>آثار باستانی</b> (جاده‌ی شاهی، آب‌راه کهن، دژ متروک…) و <b>منابع کمیاب</b> (سنگ گران‌بها، شوره، اسب اصیل…) پخش‌اند که بونوس واقعی می‌دهند. بخشی از جهان هم <b>سرزمین بکر</b> است با قبایل مستقل — با مأموریت استعماری بگیریدشان.</li>
       <li>🏯 <b>بناهای عظیم:</b> شش بنای عظیم در جهان هست و هر کدام تنها <b>یک بار</b> ساخته می‌شود. گران و چندساله‌اند، اما اعتبار و قدرت بزرگی می‌دهند. رقبا هم دنبالشان‌اند.</li>
+      <li>🏛️ <b>شورای درباری:</b> پنج کرسی (وزیر اعظم، خزانه‌دار، سپهسالار، قاضی‌القضات، رئیس تشریفات) را از میان شاهزادگان و سران خاندان‌ها پر می‌کنید. هر کرسی به‌اندازه‌ی مهارت شاغلش بونوس می‌دهد؛ کرسی خالی یعنی دیوانِ لنگ. انتصاب، وفاداری می‌خرد و عزل، کینه می‌سازد.</li>
+      <li>💰 <b>فساد:</b> با مالیات سنگین، کشور بزرگ و شورای ناراست‌کردار رشد می‌کند و از درآمد می‌بلعد. <b>بازرسی</b> ارزان و بی‌دردسر است؛ <b>پاکسازی بزرگ</b> بسیار مؤثر ولی خاندان‌ها را خشمگین می‌کند.</li>
+      <li>🕯️ <b>دسیسه:</b> بلندپایگانِ حیله‌گر و دل‌آزرده در سایه توطئه می‌چینند. اگر کشفش کنید می‌توانید دستگیر کنید یا محافظت را تشدید کنید؛ توطئه‌ی کشف‌نشده گاهی به ترور می‌انجامد. مثل بقیه‌ی درام‌ها، <b>کمیاب است و نتیجه‌ی بدحکومتی</b>.</li>
+      <li>🎭 <b>رقابت وارثان:</b> شاهزادگان هوادار جمع می‌کنند. اگر برادرِ رقیب بسیار محبوب‌تر از وارث رسمی شود، خطر جنگ جانشینی جدی می‌شود. تربیت وارث و دادن کرسی به او، بهترین بیمه است.</li>
     </ul>
+    <h3>رویدادها</h3>
+    <p class="dim">بیش از <b>۱۲۵ رویداد</b> در بازی هست و <b>هر رویداد داستانی تنها یک بار در هر بازی می‌آید</b> — پس هیچ‌وقت همان متن تکرار نمی‌شود و هر بازی ترکیب تازه‌ای دارد. برخی رویدادها <b>زنجیره‌ای</b>اند: تصمیم امروزتان پرده‌ی بعدی را ماه‌ها بعد رقم می‌زند و بازی انتخاب شما را به یاد می‌سپارد. هر رویداد دو نسخه‌ی متن دارد: رسمی و محاوره‌ای.</p>
     <h3>مُدهای نقشه</h3>
     <p class="dim">جز سیاسی/زمین/جمعیت/تولید/ناآرامی، اکنون <b>فرهنگ</b>، <b>مذهب</b>، <b>دریایی</b>، <b>جدایی‌طلبی</b>، <b>ویرانی</b>، <b>خاندان‌ها</b>، <b>مناطق</b> و <b>قدرت</b> هم دارید. نقشه فصل‌ها را نشان می‌دهد (برف زمستان، طلای پاییز) و شب‌ها چراغ شهرها روشن می‌شود.</p>
     <h3>کلیدها</h3>
@@ -1755,9 +1839,19 @@ const TUTORIAL_PAGES = [
     'حدود یک‌ششم جهان سرزمین بکر است با قبایل مستقل. با مأموریت استعماری (از پنل استان یا تجارت) آن‌ها را به قلمرو بیفزایید — اما رقبا هم همین را می‌خواهند.',
     'شش بنای عظیم در جهان وجود دارد و هر کدام تنها یک بار ساخته می‌شود: کاخ بزرگ، فرهنگستان، آب‌راه بزرگ، ارگ استوار، نیایشگاه بزرگ و تالار بورس. گران و چندساله، اما شکوه‌آفرین.',
   ] },
+  { icon: '🏛️', title: 'شورای درباری، فساد و دسیسه', items: [
+    'پنج کرسی شورا (وزیر اعظم، خزانه‌دار، سپهسالار، قاضی‌القضات، رئیس تشریفات) را از میان شاهزادگان و سران خاندان‌های بزرگ پر می‌کنید. هر کرسی به‌اندازه‌ی مهارت شاغلش بونوس می‌دهد.',
+    'به هر خاندان کرسی بدهید، وفاداری‌اش بالا می‌رود؛ محرومش کنید یا عزلش کنید، کینه می‌گیرد. شاهزاده‌ای که کرسی نگیرد، مدعیِ فرداست.',
+    'فساد به‌مرور رشد می‌کند — با مالیات سنگین، کشور بزرگ و شورای ناراست‌کردار تندتر. از درآمد می‌بلعد، تولید را کند می‌کند و ناآرامی می‌سازد.',
+    'دو ابزار در برابر فساد دارید: «بازرسی» (پول می‌خواهد، بی‌دردسر) و «پاکسازی بزرگ» (بسیار مؤثر، اما خاندان‌ها کینه می‌گیرند و ناآرامی بالا می‌رود).',
+    'بلندپایگان حیله‌گرِ دل‌آزرده توطئه می‌چینند. اگر کشفش کنید، می‌توانید دستگیرشان کنید یا محافظت را تشدید کنید. توطئه‌ی کشف‌نشده ممکن است به ترور فرمانروا یا وارث بینجامد.',
+    'وارث را می‌توانید تربیت کنید (دیوان، رزم، دیپلماسی، نیرنگ). وارث ورزیده یعنی سلطنت آینده‌ی قدرتمندتر — و رقابت کمتر میان شاهزادگان.',
+  ] },
   { icon: '⚡', title: 'رویدادها و تصمیم‌ها', items: [
     'در جریان بازی رویدادهای تصادفی پیش می‌آیند؛ هر تصمیم واقعاً روی کشور اثر می‌گذارد (پول، ارتش، ناآرامی، روابط…).',
     'هر رویداد دو نسخه دارد: «نسخه‌ی اصلی» (رسمی و ادبی) و «ترجمه‌ی ساده» (محاوره‌ای) — با دکمه‌های بالای متن جابه‌جا شوید.',
+    'هر رویداد داستانی تنها یک بار در هر بازی می‌آید؛ پس هیچ‌وقت همان متن را دو بار نمی‌بینید و هر بازی ترکیب تازه‌ای دارد.',
+    'برخی رویدادها زنجیره‌ای‌اند: تصمیم امروزتان پرده‌ی بعدی را ماه‌ها بعد رقم می‌زند. بازی تصمیم شما را به یاد می‌سپارد.',
     'رویدادهای تصادفی پس از چند لحظه خودبه‌خود بسته می‌شوند؛ اگر تصمیمی نگیرید بدون اثر می‌مانند.',
     'رویدادهای کلیدی (آغاز خط زمانی، انتخابات، دوران شاهزادی) تا وقتی تصمیم نگیرید باز می‌مانند.',
   ] },
