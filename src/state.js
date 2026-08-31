@@ -4,8 +4,20 @@ import { genRealMap } from './worldmap.js';
 import { NATION_DEFS, GOODS, BUILDINGS, FAMILY_PORTRAITS, DAUGHTER_NAMES, SON_NAMES } from './data.js';
 import { timelineById, difficultyById, OTHER_NATION } from './timelines.js';
 import { mulberry32, clamp, pick } from './utils.js';
+import { initCharacters, charsOf, resetCharUid } from './characters.js';
+import { initNavy } from './naval.js';
+import { initEspionage } from './espionage.js';
+import { initSociety } from './society.js';
+import { initTrade } from './trade.js';
+import { initDynasty, resetRoyalUid } from './dynasty.js';
+import { initWorld } from './world.js';
+import { refreshGreatPowers, initCrises } from './greatpower.js';
+import { initProjects } from './projects.js';
+import { initInfamy } from './infamy.js';
+import { initChronicle } from './chronicle.js';
+import { initCouncil } from './council.js';
 
-export const SAVE_KEY = 'unrealcity1836_save_v3';
+export const SAVE_KEY = 'unrealcity1836_save_v5';
 
 // قوانین آغازین هر خط زمانی (با توجه به روح دوره)
 function defaultLaws(tlId, pers, rng) {
@@ -37,7 +49,7 @@ export function newGame(seed, opts) {
   }
   const nations = defs.map((d, i) => ({
     id: i, key: d.key, name: d.name, adj: d.adj, ruler: d.ruler, pers: d.pers, desc: d.desc,
-    c1: d.c1, c2: d.c2, flag: d.flag,
+    c1: d.c1, c2: d.c2, flag: d.flag, ideas: d.ideas || null,
     player: i === playerIdx, alive: true, playable: real ? i < tl.nations.length : true,
     capital: 0,
     treasury: Math.round((2500 + ((seed >> i) % 7) * 400) * (diffMods.startMoney || 1) * (scMods.treasuryMult || 1)),
@@ -127,8 +139,8 @@ export function newGame(seed, opts) {
     fam.push(
       { id: 1, role: 'father', name: nations[playerIdx].ruler, avatar: FAMILY_PORTRAITS.father, rel: 72, age: 58, alive: true, traits: ['خویشتن‌دار', 'جهان‌دیده'], talkCd: 0, hist: [] },
       { id: 2, role: 'mother', name: 'ملکه ' + pick(rng, ['جهان‌بانو', 'ماه‌دخت', 'تاج‌الملوک', 'شیرین‌بانو']), avatar: FAMILY_PORTRAITS.mother, rel: 80, age: 52, alive: true, traits: ['مهربان', 'تدبیرگر'], talkCd: 0, hist: [] },
-      { id: 3, role: 'brother', name: 'شاهزاده ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
-      { id: 4, role: 'sister', name: 'شاهزاده ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
+      { id: 3, role: 'brother', name: 'شاهزاده‌برادر ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
+      { id: 4, role: 'sister', name: 'شاهدخت‌خواهر ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
       { id: 5, role: 'vizier', name: 'وزیر ' + pick(rng, ['میرزا کاظم', 'میرزا حسن', 'میرزا تقی', 'میرزا ابوالقاسم']), avatar: FAMILY_PORTRAITS.vizier, rel: 68, age: 55, alive: true, traits: ['با تجربه', 'وفادار'], talkCd: 0, hist: [] },
     );
   }
@@ -146,11 +158,17 @@ export function newGame(seed, opts) {
     armies: [], nextArmyId: 1,
     wars: [], nextWarId: 1,
     battles: [], nextBattleId: 1,
+    // --- سامانه‌های تازه ---
+    chars: [], nextOpId: 1,
+    royals: [], royalNews: [], nextRoyalEventId: 1,
+    regions: [], wonders: [], crises: [], nextCrisisId: 1,
+    fleets: [], nextFleetId: 1, seaZones: [],
+    navalBattles: [],
     fx: [],
     log: [],
     pendingEvent: null,
     eventCd: 20,
-    evCd: {}, evSeen: {},
+    evCd: {}, evSeen: {}, evFlags: {}, evProv: null,
     scheduled: [],
     family: fam,
     nextFamId: 6,
@@ -165,6 +183,23 @@ export function newGame(seed, opts) {
     state.goods[g] = { price: GOODS[g].base * (0.9 + rng() * 0.2), s: 0, d: 0, hist: [] };
   }
   for (const n of nations) { state.stats.gdp[n.id] = []; state.stats.sol[n.id] = []; }
+
+  // ---- سامانه‌های تازه: شخصیت‌ها، جامعه، تجارت، جاسوسی، نیروی دریایی ----
+  initCharacters(state);
+  initSociety(state);
+  initTrade(state);
+  // --- سلسله، جهان داستان‌دار و قدرت‌های بزرگ (فقط خط ویکتوریا) ---
+  resetRoyalUid();
+  initWorld(state);
+  initDynasty(state);
+  initCouncil(state);
+  initCrises(state);
+  initProjects(state);
+  initInfamy(state);
+  initChronicle(state);
+  refreshGreatPowers(state);
+  initEspionage(state);
+  initNavy(state);
 
   // سناریوی «عصر ماشین»: پژوهش آغازین
   if (scMods.researchStart) state.nations[playerIdx].res = { key: null, pts: scMods.researchStart };
@@ -202,21 +237,42 @@ export function saveGame(state) {
       taxLvl: n.taxLvl, laws: n.laws, enact: n.enact, groups: n.groups, tech: n.tech,
       res: n.res, rel: n.rel, pacts: n.pacts, wars: n.wars, treasury: n.treasury,
       battalions: n.battalions, prestige: n.prestige, gdp: n.gdp, alive: n.alive,
+      projDone: n.projDone, decreeCd: n.decreeCd, industBoost: n.industBoost,
+      idleResWk: n.idleResWk, emergWk: n.emergWk,
+      infamy: n.infamy,
       boom: n.boom, strike: n.strike, capital: n.capital, revoltCd: n.revoltCd, dowCd: n.dowCd,
       literacy: n.literacy, missionsDone: n.missionsDone, annexed: n.annexed, electionCd: n.electionCd,
       warExh: n.warExh, personality: n.personality, persMods: n.persMods,
+      // سامانه‌های تازه
+      cabinet: n.cabinet, candidates: n.candidates,
+      spyNet: n.spyNet, ops: n.ops, intel: n.intel, grudge: n.grudge, counterBoost: n.counterBoost,
+      culture: n.culture, religion: n.religion, stability: n.stability, legitimacy: n.legitimacy,
+      movements: n.movements, civilWar: n.civilWar, civilWarCd: n.civilWarCd, lostProvs: n.lostProvs,
+      tariff: n.tariff, routes: n.routes, companies: n.companies, colonies: n.colonies,
+      dyn: n.dyn, sphere: n.sphere, sphereSince: n.sphereSince,
+      greatPower: n.greatPower, gpRank: n.gpRank, powerScore: n.powerScore, ruler: n.ruler,
+      council: n.council, corruption: n.corruption, plot: n.plot, heirRisk: n.heirRisk, eduCd: n.eduCd,
     })),
     provs: state.map.provs.map(p => ({
       owner: p.owner, controller: p.controller, pops: p.pops, bld: p.bld, queue: p.queue,
       unrest: p.unrest, sol: p.sol, devast: p.devast,
+      culture: p.culture, religion: p.religion, assim: p.assim, sepPressure: p.sepPressure,
+      navyQueue: p.navyQueue, blockaded: p.blockaded,
+      landmark: p.landmark, rare: p.rare, region: p.region, tribe: p.tribe,
     })),
+    chars: state.chars, nextOpId: state.nextOpId,
+    fleets: state.fleets, nextFleetId: state.nextFleetId,
     goods: Object.fromEntries(Object.entries(state.goods).map(([k, g]) => [k, { price: g.price, hist: g.hist.slice(-80) }])),
     armies: state.armies.map(a => ({ id: a.id, n: a.n, prov: a.prov, home: a.home, size: a.size, org: a.org, mor: a.mor, path: a.path, status: a.status, rebel: a.rebel, prog: a.prog, gen: a.gen, dig: a.dig })),
     nextArmyId: state.nextArmyId,
     wars: state.wars, nextWarId: state.nextWarId,
     log: state.log.slice(-60), stats: state.stats, victory: state.victory,
-    evCd: state.evCd, evSeen: state.evSeen, scheduled: state.scheduled,
+    evCd: state.evCd, evSeen: state.evSeen, evFlags: state.evFlags, scheduled: state.scheduled,
     family: state.family, nextFamId: state.nextFamId,
+    royals: state.royals, royalNews: state.royalNews,
+    regions: state.regions, wonders: state.wonders, projects: state.projects, coalitions: state.coalitions,
+    chronicle: state.chronicle,
+    crises: state.crises, nextCrisisId: state.nextCrisisId,
     phase: state.phase, prologue: state.prologue, era: state.era,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(dyn));
@@ -250,10 +306,42 @@ export function loadGame() {
   }
   if (dyn.evCd) state.evCd = dyn.evCd;
   if (dyn.evSeen) state.evSeen = dyn.evSeen;
+  if (dyn.evFlags) state.evFlags = dyn.evFlags;
   if (dyn.scheduled) state.scheduled = dyn.scheduled;
   if (dyn.family) { state.family = dyn.family; state.nextFamId = dyn.nextFamId || state.nextFamId; }
   if (dyn.phase) state.phase = dyn.phase;
   if (dyn.prologue) state.prologue = dyn.prologue;
+  // ---- بازیابی سامانه‌های تازه ----
+  if (dyn.chars?.length) {
+    state.chars = dyn.chars;
+    state.nextOpId = dyn.nextOpId || 1;
+    let mx = 0; for (const c of state.chars) mx = Math.max(mx, c.id);
+    resetCharUid(mx + 1);
+  }
+  if (dyn.fleets) { state.fleets = dyn.fleets; state.nextFleetId = dyn.nextFleetId || 1; }
+  // ---- سلسله، جهان و بحران‌ها ----
+  if (dyn.royals?.length) {
+    state.royals = dyn.royals;
+    let mr = 0; for (const r of state.royals) mr = Math.max(mr, r.id);
+    resetRoyalUid(mr + 1);
+  }
+  if (dyn.royalNews) state.royalNews = dyn.royalNews;
+  if (dyn.regions?.length) state.regions = dyn.regions;
+  if (dyn.wonders) state.wonders = dyn.wonders;
+  if (dyn.projects) state.projects = dyn.projects;
+  if (dyn.coalitions) state.coalitions = dyn.coalitions;
+  if (dyn.chronicle) state.chronicle = dyn.chronicle;
+  if (dyn.crises) { state.crises = dyn.crises; state.nextCrisisId = dyn.nextCrisisId || 1; }
+  // مقادیر پیش‌فرض برای ذخیره‌های ناقص
+  for (const n of state.nations) {
+    n.cabinet = n.cabinet || {}; n.candidates = n.candidates || [];
+    n.spyNet = n.spyNet || {}; n.ops = n.ops || []; n.intel = n.intel || {}; n.grudge = n.grudge || {};
+    n.movements = n.movements || {}; n.routes = n.routes || []; n.companies = n.companies || [];
+    n.colonies = n.colonies || [];
+    if (n.tariff === undefined) n.tariff = 2;
+    if (n.stability === undefined) n.stability = 50;
+    if (n.legitimacy === undefined) n.legitimacy = 60;
+  }
   state.battles = []; state.fx = []; state.pendingEvent = null; state.eventCd = 8;
   return state;
 }

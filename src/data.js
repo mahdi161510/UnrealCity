@@ -1,3 +1,7 @@
+import { DYN_EVENTS } from './events-dyn.js';
+import { WORLD_EVENTS } from './events-world.js';
+import { MORE_EVENTS } from './events-more.js';
+import { EXTRA_EVENTS } from './events-extra.js';
 // ---------- تعاریف ثابت بازی: کالاها، ساختمان‌ها، فناوری، قوانین، ملت‌ها، رویدادها ----------
 
 export const GOODS = {
@@ -126,16 +130,16 @@ export const TAX_LEVELS = [
 
 // ---------------- ملت‌ها ----------------
 export const NATION_DEFS = [
-  { name: 'شاهنشاهی آریان',   adj: 'آریایی',   ruler: 'شاهنشاه بهرام دوم',  pers: 'balanced',    c1: '#2e7d6b', c2: '#e8c766', flag: { style: 'h2', emblem: 'sun' },     desc: 'امپراتوری کهنه‌سالار میان‌رودان؛ ارتش و زمین، ستون‌های تاج‌اند.' },
-  { name: 'پادشاهی سِروشهر',  adj: 'سِروشهری', ruler: 'ملکه آناهیتا',        pers: 'industrial', c1: '#3a6b34', c2: '#f2efe4', flag: { style: 'h3', emblem: 'tree' },    desc: 'سرسبز و کارخانه‌دار؛ پیشرو در نساجی و ابزار.' },
-  { name: 'امارت مرزبان',     adj: 'مرزبانی',  ruler: 'امیر طهمورث',        pers: 'aggressive', c1: '#8c2f39', c2: '#f2d8a7', flag: { style: 'v2', emblem: 'scimitar' }, desc: 'مرزبانان جنگ‌جو با اسب‌های تیزپا.' },
-  { name: 'خان‌نشین توران',   adj: 'تورانی',   ruler: 'خان بزرگ اطلس',      pers: 'aggressive', c1: '#b26a21', c2: '#2b2118', flag: { style: 'h2', emblem: 'horse' },    desc: 'امپراتوری چابه‌سواران دشت‌های خشک.' },
-  { name: 'دولت نیل‌پر',      adj: 'نیل‌پری',  ruler: 'خدیو ایوب',          pers: 'balanced',   c1: '#2b5d8a', c2: '#e9d8a6', flag: { style: 'h3', emblem: 'crescent' }, desc: 'نیایشگاه تمدن؛ دانه‌باغ غلات کرانه.' },
-  { name: 'جمهور تجار آبان',  adj: 'آبانی',    ruler: 'دوج کاروان',         pers: 'trader',     c1: '#4b3b75', c2: '#d9c8f2', flag: { style: 'v3', emblem: 'coin' },     desc: 'جمهوری بندری که با سکه حرف می‌زند.' },
-  { name: 'شاهنشاهی لاجورد',  adj: 'لاجوردی',  ruler: 'شاه پیروز لاجوردی',  pers: 'industrial', c1: '#1f4fa0', c2: '#cfe3ff', flag: { style: 'h2', emblem: 'mountain' },  desc: 'کوهستانِ سرشار از آهن و زغال.' },
-  { name: 'پادشاهی گُل‌نار',  adj: 'گلناری',   ruler: 'پادشاه رزم‌آرا',     pers: 'balanced',   c1: '#a03355', c2: '#f4e3d0', flag: { style: 'v2', emblem: 'rose' },     desc: 'باغستان معروف به گل، شراب و دانش.' },
-  { name: 'اتحاد کوم',        adj: 'کومی',     ruler: 'رهبر شورا',          pers: 'peaceful',   c1: '#557a46', c2: '#efe6c8', flag: { style: 'h3', emblem: 'star' },     desc: 'عشایر متحد دشت‌نشین؛ آرام ولی سرسخت.' },
-  { name: 'سلطنت بیابان‌ما',  adj: 'بیابانی',  ruler: 'سلطان ریگ‌زاده',     pers: 'peaceful',   c1: '#b08d3c', c2: '#3a2f1d', flag: { style: 'h2', emblem: 'crescent' }, desc: 'کاروان‌سراهای شنی و دروازه‌ی راه‌ها.' },
+  { name: 'شاهنشاهی آریان',   adj: 'آریایی',   ruler: 'شاهنشاه بهرام دوم',  pers: 'balanced',    c1: '#2e7d6b', c2: '#e8c766', flag: { style: 'h2', emblem: 'sun' },     ideas: { name: 'میراث شاهنشاهی', mods: { legitimacy: 0.12, armyMor: 0.06, taxIncome: 0.05 } }, desc: 'امپراتوری کهنه‌سالار میان‌رودان؛ ارتش و زمین، ستون‌های تاج‌اند.' },
+  { name: 'پادشاهی سِروشهر',  adj: 'سِروشهری', ruler: 'ملکه آناهیتا',        pers: 'industrial', c1: '#3a6b34', c2: '#f2efe4', flag: { style: 'h3', emblem: 'tree' },    ideas: { name: 'کارگاه‌های سبز', mods: { urbanOut: 0.10, buildCost: -0.08 } }, desc: 'سرسبز و کارخانه‌دار؛ پیشرو در نساجی و ابزار.' },
+  { name: 'امارت مرزبان',     adj: 'مرزبانی',  ruler: 'امیر طهمورث',        pers: 'aggressive', c1: '#8c2f39', c2: '#f2d8a7', flag: { style: 'v2', emblem: 'scimitar' }, ideas: { name: 'سواران مرز', mods: { moveSpeed: 0.16, armyAtk: 0.07, upkeep: -0.06 } }, desc: 'مرزبانان جنگ‌جو با اسب‌های تیزپا.' },
+  { name: 'خان‌نشین توران',   adj: 'تورانی',   ruler: 'خان بزرگ اطلس',      pers: 'aggressive', c1: '#b26a21', c2: '#2b2118', flag: { style: 'h2', emblem: 'horse' },    ideas: { name: 'دشت بی‌کران', mods: { moveSpeed: 0.20, upkeep: -0.12, farm: -0.05 } }, desc: 'امپراتوری چابه‌سواران دشت‌های خشک.' },
+  { name: 'دولت نیل‌پر',      adj: 'نیل‌پری',  ruler: 'خدیو ایوب',          pers: 'balanced',   c1: '#2b5d8a', c2: '#e9d8a6', flag: { style: 'h3', emblem: 'crescent' }, ideas: { name: 'هدیه‌ی رود', mods: { farm: 0.18, popGrowth: 0.08 } }, desc: 'نیایشگاه تمدن؛ دانه‌باغ غلات کرانه.' },
+  { name: 'جمهور تجار آبان',  adj: 'آبانی',    ruler: 'دوج کاروان',         pers: 'trader',     c1: '#4b3b75', c2: '#d9c8f2', flag: { style: 'v3', emblem: 'coin' },     ideas: { name: 'سکه پیش از شمشیر', mods: { tradeCap: 0.22, taxIncome: 0.12, armyMor: -0.06 } }, desc: 'جمهوری بندری که با سکه حرف می‌زند.' },
+  { name: 'شاهنشاهی لاجورد',  adj: 'لاجوردی',  ruler: 'شاه پیروز لاجوردی',  pers: 'industrial', c1: '#1f4fa0', c2: '#cfe3ff', flag: { style: 'h2', emblem: 'mountain' },  ideas: { name: 'دل کوه', mods: { ironBonus: 0.22, prod: 0.08, moveSpeed: -0.05 } }, desc: 'کوهستانِ سرشار از آهن و زغال.' },
+  { name: 'پادشاهی گُل‌نار',  adj: 'گلناری',   ruler: 'پادشاه رزم‌آرا',     pers: 'balanced',   c1: '#a03355', c2: '#f4e3d0', flag: { style: 'v2', emblem: 'rose' },     ideas: { name: 'باغ دانش', mods: { research: 0.16, literacy: 0.12 } }, desc: 'باغستان معروف به گل، شراب و دانش.' },
+  { name: 'اتحاد کوم',        adj: 'کومی',     ruler: 'رهبر شورا',          pers: 'peaceful',   c1: '#557a46', c2: '#efe6c8', flag: { style: 'h3', emblem: 'star' },     ideas: { name: 'شورای عشایر', mods: { stability: 0.14, unrest: -0.10, armyAtk: -0.05 } }, desc: 'عشایر متحد دشت‌نشین؛ آرام ولی سرسخت.' },
+  { name: 'سلطنت بیابان‌ما',  adj: 'بیابانی',  ruler: 'سلطان ریگ‌زاده',     pers: 'peaceful',   c1: '#b08d3c', c2: '#3a2f1d', flag: { style: 'h2', emblem: 'crescent' }, ideas: { name: 'دروازه‌ی کاروان‌ها', mods: { tradeCap: 0.16, relGain: 0.10 } }, desc: 'کاروان‌سراهای شنی و دروازه‌ی راه‌ها.' },
 ];
 
 export const TERRAIN = {
@@ -406,7 +410,7 @@ export const EVENTS = [
       { label: 'بهره‌برداری پنهان', hint: 'امتیاز پژوهش +۲۵، ریسک رسوایی (اعتبار −۱)', fx: { research: 25, prestige: -1 } },
       { label: 'نابودی و بی‌گناهی', hint: 'اعتبار +۲، روحانیون خرسند', fx: { prestige: 2, approval: { clergy: 4 } } },
     ] },
-];
+].concat(DYN_EVENTS, WORLD_EVENTS, MORE_EVENTS, EXTRA_EVENTS);
 
 // ---------------- عصرها (گشایش تدریجی در گذر زمان) ----------------
 export const ERAS = [

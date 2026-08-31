@@ -2,6 +2,27 @@
 import { clamp, lerp, mulberry32, smoothstep } from './utils.js';
 import { BUILDINGS, TERRAIN, POP_CLASSES } from './data.js';
 import { REBEL, atWar, warHas } from './sim.js';
+import { CULTURES, RELIGIONS } from './society.js';
+import { SHIP_CLASSES, totalShips, fleetPower, zoneOf } from './naval.js';
+import { factionsOf } from './dynasty.js';
+import { LANDMARKS, RARE_RES } from './world.js';
+import { powerScore } from './greatpower.js';
+
+// ---------- فصل‌ها: رنگ‌آمیزی و حال‌وهوای جهان در طول سال ----------
+export const SEASONS = [
+  { id: 'spring', name: 'بهار',  icon: '🌸', tint: [  6,  14,  -6], warmth: 0.10, snow: 0.00, haze: 0.05 },
+  { id: 'summer', name: 'تابستان', icon: '☀️', tint: [ 18,  10, -16], warmth: 0.20, snow: 0.00, haze: 0.12 },
+  { id: 'autumn', name: 'پاییز', icon: '🍂', tint: [ 22,  -2, -18], warmth: 0.14, snow: 0.02, haze: 0.09 },
+  { id: 'winter', name: 'زمستان', icon: '❄️', tint: [-10,  -6,  10], warmth: -0.18, snow: 0.55, haze: 0.16 },
+];
+export function seasonOfWeek(week) {
+  // هفته ۰ = اوایل ژانویه ⇒ زمستان
+  const w = ((week % 52) + 52) % 52;
+  if (w < 9 || w >= 48) return 3;   // زمستان
+  if (w < 22) return 0;             // بهار
+  if (w < 35) return 1;             // تابستان
+  return 2;                         // پاییز
+}
 
 const SEA_DEEP_A = [26, 45, 71], SEA_SHAL = [58, 98, 132];
 const PAL = {
@@ -59,6 +80,9 @@ export class MapRenderer {
   // ---------- terrain ----------
   drawTerrain(state) {
     const { cells, elev, moist, seaLevel, gw: GW, gh: GH, cell: CELL } = state.map.grid;
+    // فصل جاری، زمین را رنگ می‌زند: سبزِ بهار، طلایی پاییز، سفیدیِ زمستان
+    const SEA = SEASONS[this._season ?? seasonOfWeek(state.week || 0)];
+    this._drawnSeason = this._season ?? seasonOfWeek(state.week || 0);
     const W = this.W, H = this.H;
     const c = this.terCv.getContext('2d');
     const img = c.createImageData(GW, GH);
@@ -78,11 +102,35 @@ export class MapRenderer {
         col = [clamp(col[0] + v * 0.8, 0, 255), clamp(col[1] + v, 0, 255), clamp(col[2] + v * 0.8, 0, 255)];
         if (e < seaLevel + 0.018) col = PAL.beach;
         if (e > 0.86) col = PAL.snow;
+        // --- رنگ فصلی ---
+        col = [clamp(col[0] + SEA.tint[0], 0, 255), clamp(col[1] + SEA.tint[1], 0, 255), clamp(col[2] + SEA.tint[2], 0, 255)];
+        // برف زمستانی: عرض‌های بالا و ارتفاعات سفید می‌پوشند
+        if (SEA.snow > 0) {
+          const lat = Math.abs(y / GH - 0.5) * 2;                 // ۰ استوا … ۱ قطب
+          const snowAmt = clamp((lat - 0.42) * 2.2 + (e - 0.62) * 2.4, 0, 1) * SEA.snow;
+          if (snowAmt > 0.02) col = [lerp(col[0], 244, snowAmt), lerp(col[1], 246, snowAmt), lerp(col[2], 250, snowAmt)];
+        }
       }
-      // سایه‌روشن شیب (نور از شمال‌غرب) → حس سه‌بعدی
-      const dx = elev[x < GW - 1 ? i + 1 : i] - elev[x > 0 ? i - 1 : i];
-      const dy = elev[y < GH - 1 ? i + GW : i] - elev[y > 0 ? i - GW : i];
-      const shade = clamp((dx * -1.6 + dy * -1.1) * 2.2, -0.42, 0.42) * (isSea2 ? 0.35 : 1);
+      // ---- سایه‌روشنِ برجسته‌نما (hillshade) با دو مقیاس + سایه‌ی فرورفتگی ----
+      // مقیاس ریز: بافت سنگ و تپه
+      const dx1 = elev[x < GW - 1 ? i + 1 : i] - elev[x > 0 ? i - 1 : i];
+      const dy1 = elev[y < GH - 1 ? i + GW : i] - elev[y > 0 ? i - GW : i];
+      // مقیاس درشت: توده‌ی کوهستان (۳ خانه آن‌سوتر)
+      const x3a = clamp(x + 3, 0, GW - 1), x3b = clamp(x - 3, 0, GW - 1);
+      const y3a = clamp(y + 3, 0, GH - 1), y3b = clamp(y - 3, 0, GH - 1);
+      const dx2 = elev[y * GW + x3a] - elev[y * GW + x3b];
+      const dy2 = elev[y3a * GW + x] - elev[y3b * GW + x];
+      // نور از شمال‌غرب، با زاویه‌ی فصلی (زمستان نور کم‌جان‌تر و مایل‌تر)
+      const lz = SEA.id === 'winter' ? 0.62 : SEA.id === 'summer' ? 0.92 : 0.78;
+      const nx = -(dx1 * 2.4 + dx2 * 1.5), ny = -(dy1 * 2.4 + dy2 * 1.5);
+      const len = Math.sqrt(nx * nx + ny * ny + lz * lz) || 1;
+      // بردار نور نرمال‌شده (شمال‌غرب، کمی از بالا)
+      let lambert = (nx * -0.55 + ny * -0.42 + lz * 0.72) / len;
+      lambert = clamp((lambert - 0.35) * 1.9, -0.5, 0.55);
+      // سایه‌ی فرورفتگی: درّه‌ها تیره‌تر، قله‌ها روشن‌تر
+      const around = (elev[y * GW + x3a] + elev[y * GW + x3b] + elev[y3a * GW + x] + elev[y3b * GW + x]) * 0.25;
+      const ao = clamp((e - around) * 3.2, -0.24, 0.20);
+      const shade = (lambert * 0.86 + ao) * (isSea2 ? 0.28 : 1);
       // دانه‌بندی کاغذی
       const g = ((i * 7919) % 13 - 6);
       d[(i) * 4] = clamp((col[0] + g) * (1 + shade), 0, 255);
@@ -182,11 +230,15 @@ export class MapRenderer {
       if (mode === 'terrain') { rgb = [0, 0, 0]; a = 0; }
       else if (mode === 'political') {
         const n = state.nations[p.owner];
+        // سرزمین بکر (بی‌صاحب): خاکستریِ کم‌رنگ با بافت قبیله‌ای
+        if (!n) { rgb = [92, 86, 74]; a = 120; }
+        else {
         rgb = hexToRgb(n.c1);
         if (p.controller === REBEL) { rgb = [150, 42, 32]; }
-        else if (p.controller !== p.owner) { const on = state.nations[p.controller]; rgb = mixRgb(hexToRgb(n.c1), hexToRgb(on.c1), 0.5); }
+        else if (p.controller !== p.owner) { const on = state.nations[p.controller]; rgb = on ? mixRgb(hexToRgb(n.c1), hexToRgb(on.c1), 0.5) : rgb; }
         const v = 0.85 + 0.15 * Math.min(1, p.cells.length / 80);
         rgb = [rgb[0] * v, rgb[1] * v, rgb[2] * v];
+        }
       } else if (mode === 'population') {
         const t = clamp(Math.sqrt(this.provPop(p) / maxPop), 0, 1);
         rgb = [lerp(40, 230, t), lerp(48, 210, (1 - t) * 0.5 + t * 0.2), lerp(60, 60, t)];
@@ -196,6 +248,78 @@ export class MapRenderer {
       } else if (mode === 'unrest') {
         const t = clamp((p.unrest || 0) / 100, 0, 1);
         rgb = [lerp(52, 228, t), lerp(62, 40, t), lerp(66, 42, t)];
+      } else if (mode === 'culture') {
+        const C = CULTURES[p.culture];
+        rgb = C ? hexToRgb(C.c) : [90, 90, 90];
+        // استان‌های هم‌گون‌شده روشن‌تر دیده می‌شوند
+        const as = (p.assim ?? 100) / 100;
+        rgb = [lerp(rgb[0] * 0.55, rgb[0], as), lerp(rgb[1] * 0.55, rgb[1], as), lerp(rgb[2] * 0.55, rgb[2], as)];
+      } else if (mode === 'religion') {
+        const relKeys = Object.keys(RELIGIONS);
+        const idx = Math.max(0, relKeys.indexOf(p.religion));
+        const hue = (idx / Math.max(relKeys.length, 1)) * 360;
+        rgb = hslToRgb(hue, 0.52, 0.52);
+        const own = state.nations[p.owner];
+        if (own && p.religion !== own.religion) { rgb = [rgb[0] * 0.72, rgb[1] * 0.72, rgb[2] * 0.72]; }
+      } else if (mode === 'naval') {
+        // بندرها و محاصره‌ها
+        const port = p.bld?.port || 0;
+        if (p.blockaded) rgb = [222, 60, 48];
+        else if (port > 0) { const t = clamp(port / 5, 0, 1); rgb = [lerp(40, 90, t), lerp(90, 190, t), lerp(130, 240, t)]; }
+        else { rgb = [46, 52, 58]; a = 150; }
+      } else if (mode === 'separatism') {
+        const t = clamp((p.sepPressure || 0) / 60, 0, 1);
+        rgb = [lerp(48, 210, t), lerp(56, 46, t), lerp(52, 150, t)];
+      } else if (mode === 'devast') {
+        const t = clamp((p.devast || 0) / 8, 0, 1);
+        rgb = [lerp(64, 40, t), lerp(70, 30, t), lerp(62, 26, t)];
+      } else if (mode === 'houses') {
+        // هر خاندان بزرگ رنگ خودش را دارد؛ وفاداری روشنایی را تعیین می‌کند
+        const facs = factionsOf(state, p.owner);
+        const fi = facs.findIndex(f => f.provs.includes(p.id));
+        if (fi < 0) { rgb = [52, 48, 42]; a = 140; }
+        else {
+          const f = facs[fi];
+          const hue = (fi * 67 + (p.owner * 23)) % 360;
+          rgb = hslToRgb(hue, 0.48, 0.30 + (f.loyalty / 100) * 0.30);
+          if (f.pretender) { rgb = [230, 70, 55]; }   // مدعی تاج: سرخِ هشدار
+        }
+      } else if (mode === 'regions') {
+        const rg = (state.regions || [])[p.region];
+        if (!rg) { rgb = [56, 52, 46]; a = 150; }
+        else {
+          const hue = (p.region * 47) % 360;
+          rgb = hslToRgb(hue, 0.42, 0.48);
+          if (p.owner < 0) { rgb = [rgb[0] * 0.55, rgb[1] * 0.55, rgb[2] * 0.55]; }  // بکر: تیره‌تر
+        }
+      } else if (mode === 'infamy') {
+        // بدنامی مالک استان: از سبز آرام تا سرخ منفور
+        const own = state.nations[p.owner];
+        if (!own || !own.alive) { rgb = [48, 46, 42]; a = 130; }
+        else {
+          const t = clamp((own.infamy || 0) / 100, 0, 1);
+          rgb = [lerp(70, 200, t), lerp(120, 46, t), lerp(72, 38, t)];
+        }
+      } else if (mode === 'projects') {
+        // پروژه‌های ملیِ تکمیل‌شده‌ی مالک استان
+        const own = state.nations[p.owner];
+        if (!own || !own.alive) { rgb = [48, 46, 42]; a = 130; }
+        else {
+          const done = (own.projDone || []).length;
+          const t = clamp(done / 6, 0, 1);
+          rgb = [lerp(58, 226, t), lerp(54, 182, t), lerp(48, 92, t)];
+        }
+      } else if (mode === 'power') {
+        const own = state.nations[p.owner];
+        if (!own || !own.alive) { rgb = [48, 46, 42]; a = 140; }
+        else if (own.greatPower) {
+          const t = clamp(1 - ((own.gpRank || 8) - 1) / 8, 0, 1);
+          rgb = [lerp(120, 240, t), lerp(100, 200, t), lerp(40, 90, t)];   // طلاییِ قدرت
+        } else if (own.sphere != null) {
+          const lord = state.nations[own.sphere];
+          rgb = (lord && lord.c1) ? hexToRgb(lord.c1) : [80, 80, 90];
+          rgb = [rgb[0] * 0.5 + 40, rgb[1] * 0.5 + 40, rgb[2] * 0.5 + 50];  // زیر نفوذ: کم‌رنگ‌شده
+        } else { rgb = [70, 74, 78]; }
       }
       d[i * 4] = rgb[0]; d[i * 4 + 1] = rgb[1]; d[i * 4 + 2] = rgb[2]; d[i * 4 + 3] = a;
     }
@@ -299,6 +423,9 @@ export class MapRenderer {
   draw(state, ui, t, dt) {
     const { ctx } = this;
     this.syncMap(state.map);
+    // تغییر فصل ⇒ بازنقاشی زمین
+    const seas = seasonOfWeek(state.week || 0);
+    if (seas !== this._season) { this._season = seas; this.dirtyTerrain = true; }
     if (this.dirtyTerrain) this.drawTerrain(state);
     if (this.dirtyPol) this.drawPolitical(state);
     if (this.dirtyBorders) this.drawBorders(state);
@@ -326,22 +453,301 @@ export class MapRenderer {
     ctx.globalAlpha = 1;
 
     this.drawWaves(state, t);
+    this.drawSeaZones(state, ui, t);
+    this.drawTradeRoutes(state, t);
     this.drawNames(state, ui);
     this.updateShips(state, dt);
     this.drawShips(t);
     this.drawRailways(state, dt, t);
+    this.drawNightVeil(state, t);
     this.drawCities(state, t);
+    this.drawWorldFlavor(state, t);
     this.updateSmoke(state, dt);
     this.drawSmoke(ctx);
     this.updateBirds(dt);
     this.drawBirds(t);
+    this.drawFleets(state, ui, t, dt);
     this.drawArmies(state, t);
     this.drawBattles(state, t);
+    this.drawSieges(state, t);
+    this.drawProjects(state, t);
+    this.drawInfamy(state, t);
     this.drawFx(state, dt);
     this.drawSelection(state, ui, t);
+    this.updateWeather(state, dt);
+    this.drawWeather(state, t);
     this.drawClouds(dt);
     ctx.restore();
+    this.drawVignette(state);
     this.drawMinimap(state);
+  }
+
+  // ---------- مناطق دریایی (فقط وقتی ناوگانی برگزیده یا مُد دریایی فعال است) ----------
+  drawSeaZones(state, ui, t) {
+    if (!state.seaZones?.length) return;
+    const show = ui.selFleet != null || this.mapMode === 'naval';
+    if (!show) return;
+    const ctx = this.ctx;
+    ctx.save();
+    for (const z of state.seaZones) {
+      const mine = (state.fleets || []).some(f => f.zone === z.id && f.n === state.playerId && totalShips(f) > 0);
+      ctx.globalAlpha = 0.10 + 0.04 * Math.sin(t * 1.6 + z.id);
+      ctx.fillStyle = mine ? '#6fd3ff' : '#7f9ab5';
+      ctx.beginPath();
+      ctx.ellipse(z.cx, z.cy, (z.x1 - z.x0) * 0.42, (z.y1 - z.y0) * 0.40, 0, 0, 7);
+      ctx.fill();
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = 'rgba(190,225,245,0.55)';
+      ctx.setLineDash([10, 8]); ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (this.cam.z > 0.3) {
+        ctx.globalAlpha = 0.85;
+        ctx.font = `600 ${clamp(15 / this.cam.z, 11, 34)}px Vazirmatn, Tahoma`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(14,24,34,0.65)';
+        ctx.fillText(z.name, z.cx + 1.5, z.cy + 1.5);
+        ctx.fillStyle = 'rgba(214,238,250,0.92)';
+        ctx.fillText(z.name, z.cx, z.cy);
+      }
+    }
+    ctx.restore();
+  }
+
+  // ---------- مسیرهای بازرگانی بازیکن ----------
+  drawTradeRoutes(state, t) {
+    const pn = state.nations[state.playerId];
+    if (!pn?.routes?.length || this.cam.z < 0.22) return;
+    const ctx = this.ctx;
+    ctx.save();
+    for (const r of pn.routes) {
+      const other = state.nations[r.with];
+      if (!other?.alive) continue;
+      const a = state.map.provs[pn.capital], b = state.map.provs[other.capital];
+      if (!a || !b) continue;
+      const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2 - Math.hypot(b.cx - a.cx, b.cy - a.cy) * 0.14;
+      ctx.strokeStyle = r.dir === 'export' ? 'rgba(143,188,106,0.42)' : 'rgba(217,177,102,0.42)';
+      ctx.lineWidth = clamp(1 + (r.vol || 0) * 0.5, 1, 4);
+      ctx.setLineDash([6, 7]);
+      ctx.lineDashOffset = -t * (r.dir === 'export' ? 16 : -16);
+      ctx.beginPath();
+      ctx.moveTo(a.cx, a.cy);
+      ctx.quadraticCurveTo(mx, my, b.cx, b.cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // بسته‌ی کالا در حال حرکت
+      const u = (t * 0.11 + r.with * 0.17) % 1;
+      const uu = r.dir === 'export' ? u : 1 - u;
+      const px = bez(a.cx, mx, b.cx, uu), py = bez(a.cy, my, b.cy, uu);
+      ctx.globalAlpha = 0.9;
+      ctx.font = `${clamp(11 / this.cam.z, 8, 20)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('📦', px, py);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  // ---------- ناوگان‌ها روی دریا ----------
+  drawFleets(state, ui, t, dt) {
+    if (!state.fleets?.length) return;
+    const ctx = this.ctx;
+    for (const f of state.fleets) {
+      const ships = totalShips(f);
+      if (ships <= 0) continue;
+      const z = zoneOf(state, f.zone);
+      if (!z) continue;
+      // موقعیت: مرکز منطقه + آفست پایدار بر پایه‌ی id (تا ناوگان‌ها روی هم نیفتند)
+      const ang = (f.id * 2.399) % (Math.PI * 2);
+      const rad = 26 + (f.id % 3) * 22;
+      let x = z.cx + Math.cos(ang) * rad, y = z.cy + Math.sin(ang) * rad * 0.7;
+      // حرکت بین مناطق
+      if (f.status === 'move' && f.path?.length > 1) {
+        const z2 = zoneOf(state, f.path[1]);
+        if (z2) { const u = clamp(f.prog, 0, 1); x = lerp(x, z2.cx, u); y = lerp(y, z2.cy, u); }
+      }
+      // محاصره: ناوگان کنار بندر هدف می‌ایستد
+      if (f.status === 'blockade' && f.blockade != null) {
+        const bp = state.map.provs[f.blockade];
+        if (bp) { const d = seaDir(state, bp); x = bp.cx + d.x * 26; y = bp.cy + d.y * 26; }
+      }
+      const n = state.nations[f.n];
+      const bob = Math.sin(t * 1.8 + f.id) * 1.6;
+      const isMine = f.n === state.playerId;
+      const sel = ui.selFleet === f.id;
+      ctx.save();
+      ctx.translate(x, y + bob);
+      // موج زیر ناوگان
+      ctx.globalAlpha = 0.30;
+      ctx.strokeStyle = '#dff0fa'; ctx.lineWidth = 1;
+      for (let k = 0; k < 2; k++) {
+        const rr = 11 + k * 6 + Math.sin(t * 2.2 + k + f.id) * 1.6;
+        ctx.beginPath(); ctx.ellipse(0, 5, rr, rr * 0.32, 0, 0, 7); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      if (sel) {
+        ctx.strokeStyle = '#ffd97a'; ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(t * 5);
+        ctx.beginPath(); ctx.arc(0, 0, 20, 0, 7); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      // بدنه‌ی ناو
+      ctx.fillStyle = '#2b2418';
+      ctx.beginPath();
+      ctx.moveTo(-11, 2); ctx.quadraticCurveTo(-9, 7, 0, 7); ctx.quadraticCurveTo(11, 7, 13, 1);
+      ctx.lineTo(-11, 1); ctx.closePath(); ctx.fill();
+      // بادبان یا دودکش بسته به کلاس غالب
+      const heavy = (f.ships.dread || 0) + (f.ships.cruiser || 0) + (f.ships.ironclad || 0);
+      if (heavy > 0) {
+        ctx.fillStyle = '#4a4238';
+        ctx.fillRect(-4, -8, 3.4, 9); ctx.fillRect(1.5, -6, 3, 7);
+        if (Math.random() < 0.05 && this.smoke.length < 380) {
+          this.smoke.push({ x, y: y - 9, vx: 0.6 + Math.random(), vy: -5 - Math.random() * 2, life: 1.8, t: 0, r: 1.4 });
+        }
+      } else {
+        ctx.fillStyle = 'rgba(246,241,226,0.95)';
+        ctx.beginPath(); ctx.moveTo(-1, 0); ctx.lineTo(-1, -12); ctx.lineTo(8, 0); ctx.closePath(); ctx.fill();
+      }
+      // پرچم ملی
+      if (n) this.drawFlag(ctx, n, -12, -15, 11, 7);
+      // شمار فروند
+      ctx.fillStyle = isMine ? '#ffeec4' : '#f3dcd2';
+      ctx.strokeStyle = 'rgba(12,18,24,0.85)'; ctx.lineWidth = 2.6;
+      ctx.font = 'bold 9.5px Vazirmatn, Tahoma'; ctx.textAlign = 'center';
+      ctx.strokeText('⚓' + fa(ships), 1, 17); ctx.fillText('⚓' + fa(ships), 1, 17);
+      ctx.restore();
+      // خط مسیر حرکت
+      if (f.status === 'move' && f.path?.length > 1) {
+        ctx.save();
+        ctx.strokeStyle = n ? n.c2 : '#9cf';
+        ctx.setLineDash([5, 6]); ctx.lineDashOffset = -t * 20;
+        ctx.globalAlpha = 0.55; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (let i = 1; i < f.path.length; i++) { const zz = zoneOf(state, f.path[i]); if (zz) ctx.lineTo(zz.cx, zz.cy); }
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  // ---------- محاصره‌ی بندرها + پیشرفت اشغال ----------
+  drawSieges(state, t) {
+    const ctx = this.ctx;
+    for (const p of state.map.provs) {
+      if (p.blockaded) {
+        ctx.save();
+        ctx.globalAlpha = 0.45 + 0.2 * Math.sin(t * 3.4 + p.id);
+        ctx.strokeStyle = '#ff6a4a'; ctx.lineWidth = 2;
+        ctx.setLineDash([4, 5]); ctx.lineDashOffset = t * 10;
+        ctx.beginPath(); ctx.arc(p.cx, p.cy, 17, 0, 7); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1; ctx.font = '12px serif'; ctx.textAlign = 'center';
+        ctx.fillText('🚫', p.cx + 15, p.cy + 14);
+        ctx.restore();
+      }
+      // نوار پیشرفت اشغال
+      if ((p.occ || 0) > 2 && p.controller === p.owner) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(p.cx - 15, p.cy + 12, 30, 3.4);
+        ctx.fillStyle = '#d9a441'; ctx.fillRect(p.cx - 15, p.cy + 12, 30 * clamp(p.occ / 100, 0, 1), 3.4);
+        ctx.restore();
+      }
+      // مستعمره در حال ساخت
+      const colonizer = state.nations.find(n => n.alive && (n.colonies || []).some(c => c.prov === p.id));
+      if (colonizer) {
+        const c = colonizer.colonies.find(c2 => c2.prov === p.id);
+        ctx.save();
+        ctx.globalAlpha = 0.9; ctx.font = '13px serif'; ctx.textAlign = 'center';
+        ctx.fillText('🏴', p.cx, p.cy - 16 + Math.sin(t * 3 + p.id) * 1.5);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(p.cx - 13, p.cy + 12, 26, 3);
+        ctx.fillStyle = colonizer.c2 || '#d9a441';
+        ctx.fillRect(p.cx - 13, p.cy + 12, 26 * clamp(c.prog / 100, 0, 1), 3);
+        ctx.restore();
+      }
+    }
+  }
+
+  // ---------- آب‌وهوا: باران و برف فصلی ----------
+  updateWeather(state, dt) {
+    const s = SEASONS[this._season ?? 0];
+    this._wx = this._wx || [];
+    const want = s.id === 'winter' ? 90 : s.id === 'autumn' ? 55 : s.id === 'spring' ? 35 : 0;
+    // فقط وقتی زوم نزدیک است، ذره بسازیم (کارایی)
+    const target = this.cam.z > 0.42 ? want : 0;
+    while (this._wx.length < target) {
+      const v = this.toWorld(Math.random() * this.vw, Math.random() * this.vh);
+      this._wx.push({ x: v.x, y: v.y, sp: s.id === 'winter' ? 22 + Math.random() * 20 : 130 + Math.random() * 90, sw: Math.random() * 6.28, r: Math.random() });
+    }
+    if (this._wx.length > target) this._wx.length = target;
+    const tl = this.toWorld(0, 0), br = this.toWorld(this.vw, this.vh);
+    for (const w of this._wx) {
+      w.y += w.sp * dt;
+      w.x += (s.id === 'winter' ? Math.sin(w.sw + w.y * 0.02) * 9 : 26) * dt;
+      if (w.y > br.y + 20 || w.x > br.x + 20) { w.y = tl.y - 20; w.x = tl.x + Math.random() * (br.x - tl.x); }
+    }
+  }
+  drawWeather(state, t) {
+    if (!this._wx?.length) return;
+    const s = SEASONS[this._season ?? 0];
+    const ctx = this.ctx;
+    ctx.save();
+    if (s.id === 'winter') {
+      ctx.fillStyle = 'rgba(248,250,255,0.75)';
+      for (const w of this._wx) { ctx.beginPath(); ctx.arc(w.x, w.y, 0.9 + w.r * 1.1, 0, 7); ctx.fill(); }
+    } else {
+      ctx.strokeStyle = 'rgba(178,204,224,0.34)'; ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      for (const w of this._wx) { ctx.moveTo(w.x, w.y); ctx.lineTo(w.x - 2.4, w.y - 8); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ---------- پرده‌ی شب: گرادیان آبیِ سرد که با نقشه می‌خزد ----------
+  drawNightVeil(state, t) {
+    const ctx = this.ctx;
+    const tl = this.toWorld(0, 0), br = this.toWorld(this.vw, this.vh);
+    // نمونه‌برداری از تاریکی در چند نقطه‌ی افقی و ساخت گرادیان
+    const N = 6;
+    const g = ctx.createLinearGradient(tl.x, 0, br.x, 0);
+    let anyNight = false;
+    for (let i = 0; i <= N; i++) {
+      const u = i / N;
+      const wx = lerp(tl.x, br.x, u);
+      const nv = this.nightAt(wx, t);
+      if (nv > 0.05) anyNight = true;
+      // شب: آبیِ عمیق و سرد. شفق: نارنجیِ کم‌رمق.
+      const dusk = clamp(1 - Math.abs(nv - 0.45) * 3.4, 0, 1);
+      const r = lerp(10, 62, dusk), gg = lerp(16, 34, dusk), b = lerp(38, 30, dusk);
+      g.addColorStop(u, `rgba(${r | 0},${gg | 0},${b | 0},${(nv * 0.52).toFixed(3)})`);
+    }
+    if (!anyNight) return;
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+    ctx.restore();
+  }
+
+  // ---------- وینیت سینمایی روی کل صفحه ----------
+  drawVignette(state) {
+    const ctx = this.ctx;
+    const s = SEASONS[this._season ?? 0];
+    ctx.save();
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    // مه فصلی ملایم
+    if (s.haze > 0.02) {
+      ctx.globalAlpha = s.haze * 0.5;
+      ctx.fillStyle = s.id === 'winter' ? '#c9d8e8' : s.id === 'summer' ? '#e8d9a8' : '#d8cbb0';
+      ctx.fillRect(0, 0, this.vw, this.vh);
+      ctx.globalAlpha = 1;
+    }
+    const g = ctx.createRadialGradient(this.vw / 2, this.vh / 2, Math.min(this.vw, this.vh) * 0.42,
+      this.vw / 2, this.vh / 2, Math.max(this.vw, this.vh) * 0.78);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(8,6,4,0.42)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.vw, this.vh);
+    ctx.restore();
   }
 
   // ---------- امواج ساحلی ----------
@@ -370,7 +776,7 @@ export class MapRenderer {
     this._shipT = (this._shipT || 0) + dt;
     if (!this.ships) this.ships = [];
     if (this._shipT > 2.8 && this.ships.length < 10) {
-      const ports = state.map.provs.filter(p => (p.bld.port || 0) > 0 && state.nations[p.owner].alive);
+      const ports = state.map.provs.filter(p => (p.bld.port || 0) > 0 && state.nations[p.owner]?.alive);
       if (ports.length >= 2) {
         const a = ports[(Math.random() * ports.length) | 0];
         let b = a, guard = 0;
@@ -527,6 +933,95 @@ export class MapRenderer {
       }
     }
   }
+  // ---------- پروژه‌های ملی در دست ساخت: داربست + نوار پیشرفت روی پایتخت ----------
+  drawProjects(state, t) {
+    if (state.timelineId !== 'victoria') return;
+    const list = state.projects;
+    if (!list || !list.length) return;
+    const ctx = this.ctx;
+    for (const pr of list) {
+      if (pr.done) continue;
+      const n = state.nations[pr.nid];
+      if (!n || !n.alive || n.capital == null) continue;
+      const p = state.map.provs[n.capital];
+      if (!p) continue;
+      const x = p.cx + 14, y = p.cy - 20;
+      const frac = clamp((pr.prog || 0) / 100, 0, 1);
+      ctx.save();
+      // داربست چوبی
+      ctx.strokeStyle = 'rgba(120,88,44,.95)'; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 12); ctx.lineTo(x, y - 2);
+      ctx.moveTo(x + 9, y + 12); ctx.lineTo(x + 9, y - 2);
+      ctx.moveTo(x - 1, y + 12); ctx.lineTo(x + 10, y + 12);
+      ctx.moveTo(x, y + 4); ctx.lineTo(x + 9, y + 4);
+      ctx.moveTo(x, y - 2); ctx.lineTo(x + 9, y - 2);
+      ctx.stroke();
+      // جرثقیل کوچک
+      ctx.beginPath(); ctx.moveTo(x + 9, y - 2); ctx.lineTo(x + 14, y - 6); ctx.stroke();
+      // نوار پیشرفت
+      const bw = 18;
+      ctx.fillStyle = 'rgba(20,16,10,.78)';
+      ctx.fillRect(x - 2, y + 15, bw, 3.4);
+      ctx.fillStyle = '#d9b166';
+      ctx.fillRect(x - 2, y + 15, bw * frac, 3.4);
+      ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 0.6;
+      ctx.strokeRect(x - 2, y + 15, bw, 3.4);
+      // تپش ملایم روی داربست
+      const pulse = 0.35 + 0.25 * Math.sin(t * 2.2 + pr.nid);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#ffd98a';
+      ctx.beginPath(); ctx.arc(x + 14, y - 6, 1.8, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ---------- بدنامی: هاله‌ی قرمز روی پایتخت کشورهای بدنام + خطوط ائتلاف ----------
+  drawInfamy(state, t) {
+    if (state.timelineId !== 'victoria') return;
+    const ctx = this.ctx;
+    for (const n of state.nations) {
+      if (!n || !n.alive || n.capital == null) continue;
+      const inf = n.infamy || 0;
+      if (inf < 30) continue;
+      const p = state.map.provs[n.capital];
+      if (!p) continue;
+      const sev = clamp((inf - 30) / 70, 0, 1);
+      const r = 12 + sev * 16;
+      const puls = 0.5 + 0.5 * Math.sin(t * 1.6 + n.id * 0.9);
+      ctx.save();
+      const g = ctx.createRadialGradient(p.cx, p.cy, 2, p.cx, p.cy, r);
+      g.addColorStop(0, `rgba(196,64,48,${(0.16 + sev * 0.26) * (0.7 + 0.3 * puls)})`);
+      g.addColorStop(1, 'rgba(196,64,48,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.cx, p.cy, r, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    // خطوط ائتلاف: از پایتخت هر عضو به پایتخت هدف
+    const cos = state.coalitions;
+    if (cos && cos.length) {
+      for (const co of cos) {
+        const tgt = state.nations[co.target];
+        if (!tgt || !tgt.alive || tgt.capital == null) continue;
+        const tp = state.map.provs[tgt.capital];
+        if (!tp) continue;
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.lineDashOffset = -t * 18;
+        ctx.strokeStyle = 'rgba(214,86,66,.62)';
+        ctx.lineWidth = 1.4;
+        for (const mid of (co.members || [])) {
+          const m = state.nations[mid];
+          if (!m || !m.alive || m.capital == null) continue;
+          const mp = state.map.provs[m.capital];
+          if (!mp) continue;
+          ctx.beginPath(); ctx.moveTo(mp.cx, mp.cy); ctx.lineTo(tp.cx, tp.cy); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
   drawCities(state, t) {
     const ctx = this.ctx;
     for (const p of state.map.provs) {
@@ -567,6 +1062,160 @@ export class MapRenderer {
         ctx.fillText('🏗️', p.cx - 14, p.cy - 12 + bounce);
       }
     }
+    this.drawNightLights(state, t);
+  }
+
+  // ---------- آثار باستانی، منابع کمیاب، قبایل و نام مناطق ----------
+  drawWorldFlavor(state, t) {
+    const ctx = this.ctx;
+    const z = this.cam.z;
+
+    // --- نام مناطق: فقط در زوم دور، مثل اطلس کهن ---
+    if (z < 0.42 && state.regions?.length) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      const fs = clamp(20 / z, 26, 76);
+      ctx.font = `700 ${fs}px Vazirmatn, Tahoma`;
+      for (const rg of state.regions) {
+        if (!rg.provs?.length) continue;
+        const alpha = clamp((0.42 - z) * 3.2, 0, 0.42);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#1a1408';
+        ctx.fillText(rg.name, rg.cx + fs * 0.05, rg.cy + fs * 0.05);
+        ctx.globalAlpha = alpha * 1.25;
+        ctx.fillStyle = 'rgba(255,240,205,0.92)';
+        ctx.fillText(rg.name, rg.cx, rg.cy);
+      }
+      ctx.restore();
+    }
+
+    // --- نشان آثار و منابع: فقط در زوم نزدیک ---
+    if (z > 0.30) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      const fs = clamp(13 / z, 10, 22);
+      for (const p of state.map.provs) {
+        if (!p.landmark && !p.rare && !p.tribe) continue;
+        let ox = 0;
+        if (p.landmark) {
+          const L = LANDMARKS[p.landmark];
+          if (L) {
+            ctx.font = `${fs}px serif`;
+            const yy = p.cy - 18 + Math.sin(t * 1.4 + p.id) * 0.8;
+            // هاله‌ی طلایی محو پشت اثر
+            ctx.globalAlpha = 0.22 + 0.06 * Math.sin(t * 1.8 + p.id);
+            const g = ctx.createRadialGradient(p.cx - 11, yy - 3, 0.5, p.cx - 11, yy - 3, fs * 1.1);
+            g.addColorStop(0, 'rgba(255,226,150,0.9)'); g.addColorStop(1, 'rgba(255,200,90,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(p.cx - 11, yy - 3, fs * 1.1, 0, 7); ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.fillText(L.icon, p.cx - 11, yy);
+            ox = 11;
+          }
+        }
+        if (p.rare) {
+          const Rr = RARE_RES[p.rare];
+          if (Rr) {
+            ctx.font = `${fs * 0.9}px serif`;
+            ctx.globalAlpha = 0.95;
+            ctx.fillText(Rr.icon, p.cx + ox, p.cy - 18);
+            ctx.globalAlpha = 1;
+          }
+        }
+        // قبایل مستقل: چادر و نام
+        if (p.tribe && p.owner < 0) {
+          ctx.font = `${fs}px serif`;
+          ctx.globalAlpha = 0.9;
+          ctx.fillText('⛺', p.cx, p.cy + 2);
+          if (z > 0.5) {
+            ctx.font = `600 ${clamp(9 / z, 8, 13)}px Vazirmatn, Tahoma`;
+            ctx.fillStyle = 'rgba(18,14,8,0.75)';
+            ctx.fillText(p.tribe, p.cx + 1, p.cy + 15);
+            ctx.fillStyle = 'rgba(238,226,196,0.9)';
+            ctx.fillText(p.tribe, p.cx, p.cy + 14);
+          }
+          ctx.globalAlpha = 1;
+        }
+      }
+      ctx.restore();
+    }
+
+    // --- بناهای عظیم در حال ساخت یا کامل ---
+    for (const w of state.wonders || []) {
+      const p = state.map.provs[w.prov];
+      if (!p) continue;
+      ctx.save();
+      ctx.textAlign = 'center';
+      const fs = clamp(20 / z, 14, 34);
+      ctx.font = `${fs}px serif`;
+      if (w.done) {
+        // درخشش شکوه
+        ctx.globalAlpha = 0.30 + 0.12 * Math.sin(t * 1.5 + p.id);
+        const g = ctx.createRadialGradient(p.cx, p.cy - 24, 1, p.cx, p.cy - 24, fs * 1.7);
+        g.addColorStop(0, 'rgba(255,232,160,0.95)'); g.addColorStop(1, 'rgba(255,200,80,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(p.cx, p.cy - 24, fs * 1.7, 0, 7); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillText(WONDER_ICON(w.key), p.cx, p.cy - 18);
+      } else {
+        ctx.globalAlpha = 0.85;
+        ctx.fillText('🏗️', p.cx, p.cy - 20 + Math.sin(t * 3 + p.id) * 1.6);
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(p.cx - 16, p.cy - 8, 32, 3.6);
+        ctx.fillStyle = '#e8c766'; ctx.fillRect(p.cx - 16, p.cy - 8, 32 * clamp(w.prog / 100, 0, 1), 3.6);
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+    }
+  }
+
+  // ---------- چرخه‌ی شب‌وروز + چراغ‌های شهر ----------
+  // خط جدایی شب و روز از راست به چپ روی نقشه می‌خزد؛ هر دور ≈ ۹۰ ثانیه.
+  nightAt(worldX, t) {
+    const W = this.W;
+    const per = 90;                                   // ثانیه برای یک شبانه‌روز کامل
+    const sun = ((t / per) % 1) * (W * 2) - W * 0.5;  // مرکز روز
+    let d = Math.abs(worldX - sun);
+    if (d > W) d = W * 2 - d;                          // پیچش دورانی
+    // ۰ = نیم‌روز کامل، ۱ = نیمه‌شب کامل
+    return clamp((d / W - 0.26) * 2.5, 0, 1);
+  }
+  drawNightLights(state, t) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of state.map.provs) {
+      const night = this.nightAt(p.cx, t);
+      if (night < 0.18) continue;
+      const pop = this.provPop(p);
+      const urban = ['textile','tool_work','furniture','glasswork','arms_ind','university','port','railway','steel_mill','bank']
+        .reduce((a, k) => a + (p.bld[k] || 0), 0);
+      const lit = clamp(Math.sqrt(pop / 30000) * 0.5 + urban * 0.16, 0, 2.4);
+      if (lit < 0.12) continue;
+      const isCap = state.nations.some(nn => nn.alive && nn.capital === p.id);
+      const power = lit * night * (isCap ? 1.5 : 1);
+      // هاله‌ی گرمِ شهر
+      const R0 = (5 + lit * 6) * (isCap ? 1.35 : 1);
+      const g = ctx.createRadialGradient(p.cx, p.cy + 3, 0.5, p.cx, p.cy + 3, R0);
+      const flick = 0.86 + 0.14 * Math.sin(t * 2.3 + p.id * 1.7);
+      g.addColorStop(0, `rgba(255,214,132,${0.42 * power * flick})`);
+      g.addColorStop(0.45, `rgba(255,178,88,${0.18 * power * flick})`);
+      g.addColorStop(1, 'rgba(255,150,60,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.cx, p.cy + 3, R0, 0, 7); ctx.fill();
+      // پنجره‌های تک‌تک (فقط در زوم نزدیک)
+      if (this.cam.z > 0.55) {
+        const rng = mulberry32(p.id * 977 + 3);
+        const cnt = Math.min(14, Math.round(2 + lit * 5));
+        for (let k = 0; k < cnt; k++) {
+          const a = rng() * Math.PI * 2, r = rng() * (3 + lit * 4);
+          const wx = p.cx + Math.cos(a) * r, wy = p.cy + 6 + Math.sin(a) * r * 0.6;
+          const tw = 0.55 + 0.45 * Math.sin(t * (1.4 + rng() * 2.4) + k * 2.1);
+          ctx.fillStyle = `rgba(255,225,150,${0.75 * night * tw})`;
+          ctx.fillRect(wx - 0.55, wy - 0.55, 1.1, 1.1);
+        }
+      }
+    }
+    ctx.restore();
   }
   updateSmoke(state, dt) {
     // تولید ذرات دود برای استان‌های صنعتی
@@ -743,6 +1392,15 @@ function seaDir(state, p) {
     if (cells[gy * GW + gx] < 0) return { x: Math.cos(ang), y: Math.sin(ang) };
   }
   return { x: 0, y: -1 };
+}
+function WONDER_ICON(key) {
+  return ({ grand_palace: '🏯', great_academy: '🎓', grand_canal: '🚢', citadel: '🛡️', great_temple: '🕌', world_bourse: '🏦' })[key] || '🏛️';
+}
+function hslToRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, pp = 2 * l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1/6 ? pp + (q - pp) * 6 * t : t < 1/2 ? q : t < 2/3 ? pp + (q - pp) * (2/3 - t) * 6 : pp; };
+  return [f(h + 1/3) * 255, f(h) * 255, f(h - 1/3) * 255];
 }
 function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 function mixRgb(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }

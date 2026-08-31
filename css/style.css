@@ -151,12 +151,18 @@ button { font-family: inherit; cursor: pointer; }
 .al-ic { font-size: 15px; }
 
 /* داک */
+/* داک: ستون‌بندی خودکار تا هیچ دکمه‌ای بیرون از صفحه نیفتد.
+   پیش‌تر با top:50% + translateY(-50%) و ارتفاع ثابت ۹۵۴px روی نمایشگرهای
+   کوتاه‌تر از ۱۰۱۸px از بالا و پایین بریده می‌شد و ۶ دکمه دست‌نیافتنی بود. */
 #dock {
-  position: absolute; top: 50%; right: 8px; transform: translateY(-50%); z-index: 18;
-  display: flex; flex-direction: column; gap: 6px;
+  position: absolute; top: 54px; bottom: 10px; right: 8px; z-index: 18;
+  display: flex; flex-direction: column; flex-wrap: wrap;
+  align-content: flex-start; justify-content: center; gap: 6px;
+  overflow: auto; scrollbar-width: none;
 }
+#dock::-webkit-scrollbar { display: none; }
 .dock-btn {
-  position: relative; width: 42px; height: 42px; font-size: 19px;
+  position: relative; flex: 0 0 auto; width: 42px; height: 42px; font-size: 19px;
   background: linear-gradient(180deg, rgba(40,33,22,.95), rgba(28,23,15,.95));
   border: 1px solid var(--line); border-radius: 11px; color: var(--ink);
   transition: transform .1s, border-color .1s;
@@ -171,7 +177,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* پنل */
 #panel-wrap {
-  position: absolute; top: 54px; right: 58px; bottom: 12px; width: 420px; max-width: 62vw; z-index: 17;
+  position: absolute; top: 54px; right: var(--dock-w, 58px); bottom: 12px; width: 420px; max-width: 62vw; z-index: 17;
   display: flex; flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line); border-radius: 14px;
@@ -392,7 +398,17 @@ button { font-family: inherit; cursor: pointer; }
 .chip.lock { background: rgba(90,110,140,.2); border-color: rgba(90,110,140,.5); }
 .fam-rel { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; width: 92px; flex-shrink: 0; }
 .fam-rel .bar { width: 100%; }
-.ev-img { width: 100%; max-height: 190px; object-fit: cover; border-radius: 12px; margin-bottom: 9px; border: 1px solid rgba(120,90,40,.6); }
+/* قاب نقاشی رویداد: تصویر + محوشدگی پایین + آیکون روی گوشه */
+.ev-art { position: relative; margin: 0 0 11px; border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(190,150,80,.55);
+  box-shadow: 0 10px 30px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,225,160,.10);
+  animation: artIn .45s ease both; }
+.ev-art::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(0,0,0,0) 45%, rgba(10,8,5,.82) 100%); }
+.ev-art-ic { position: absolute; bottom: 8px; inset-inline-start: 12px; z-index: 2;
+  font-size: 30px; filter: drop-shadow(0 3px 10px rgba(0,0,0,.9)); }
+.ev-img { display: block; width: 100%; max-height: 210px; object-fit: cover; margin: 0; border: 0; border-radius: 0; }
+@keyframes artIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: none; } }
 
 /* چت */
 .chat-box { width: min(460px, 94vw); }
@@ -415,13 +431,19 @@ button { font-family: inherit; cursor: pointer; }
 /* مینی‌مپ و مدهای نقشه */
 #bottom-left { position: absolute; left: 10px; bottom: 10px; z-index: 16; }
 #minimap { border: 2px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); cursor: crosshair; background: #0c1420; }
+/* مُدهای نقشه: ۱۳ دکمه ≈ ۱۱۴۰px بود و در یک ردیف بدون شکست روی نمایشگر
+   کوچک‌تر از ~۱۴۰۰px با مینی‌مپ و داک برخورد می‌کرد. حالا می‌شکند و
+   حاشیه‌ی مینی‌مپ (چپ) و داک (راست) را نگه می‌دارد. */
 #mapmodes {
-  position: absolute; right: 50%; transform: translateX(50%); bottom: 10px; z-index: 16;
-  display: flex; gap: 5px;
+  position: absolute; bottom: 10px; z-index: 16;
+  left: 208px; right: calc(var(--dock-w, 58px) + 8px);
+  display: flex; flex-wrap: wrap; gap: 5px;
+  justify-content: center; align-items: flex-end;
 }
 .mm-btn {
   background: rgba(28,23,15,.92); color: var(--ink); border: 1px solid var(--line);
   border-radius: 9px; padding: 6px 12px; font-size: 11.5px;
+  white-space: nowrap; flex: 0 0 auto;
 }
 .mm-btn.on { background: #4c3a17; border-color: var(--gold2); color: #ffeec4; }
 
@@ -467,6 +489,12 @@ button { font-family: inherit; cursor: pointer; }
 #help-body h3 { color: var(--gold); font-size: 14px; margin: 12px 0 4px; }
 #help-body ul { padding-right: 18px; line-height: 2; font-size: 12.5px; }
 #help-body p { line-height: 1.9; }
+
+/* نمایشگر کوتاه: دکمه‌ها کمی کوچک‌تر تا ستون‌های داک کمتر شود */
+@media (max-height: 780px) {
+  .dock-btn { width: 37px; height: 37px; font-size: 17px; }
+  #dock { gap: 5px; }
+}
 
 @media (max-width: 900px) {
   #panel-wrap { width: calc(100vw - 70px); right: 54px; }
@@ -530,3 +558,480 @@ button { font-family: inherit; cursor: pointer; }
 .ev-timer { margin: 2px 0 10px; display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .ev-timer-bar { width: 100%; height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--gold2), #7a5c12); animation: evtimer 20s linear forwards; }
 @keyframes evtimer { from { width: 100%; } to { width: 0%; } }
+
+/* ================================================================
+   ===== سامانه‌های تازه: دربار، ناوگان، اطلاعات، جامعه، تجارت =====
+   ================================================================ */
+
+/* --- کابینه --- */
+.cab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cab-slot {
+  background: linear-gradient(180deg, rgba(255,240,200,.05), rgba(255,240,200,.02));
+  border: 1px solid rgba(80,66,40,.5); border-radius: 10px; padding: 8px 9px;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color .15s, transform .12s;
+}
+.cab-slot:hover { border-color: rgba(217,177,102,.55); transform: translateY(-1px); }
+.cab-slot.empty { border-style: dashed; opacity: .78; }
+.cab-role { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.cab-role b { color: var(--gold2); }
+.cab-ic { font-size: 16px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.cab-person { font-size: 11.5px; display: flex; flex-direction: column; gap: 3px; }
+.cab-nm { font-weight: 700; }
+.cab-slot .bar { height: 5px; }
+.cab-slot .row-btns { margin: 2px 0 0; }
+.cab-slot .pv-tags { margin: 0; }
+
+/* --- ردیف شخصیت --- */
+.chr-row {
+  display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+  transition: border-color .12s, background .12s;
+}
+.chr-row:hover { border-color: rgba(217,177,102,.5); background: rgba(255,240,200,.06); }
+.chr-row.on-duty { border-right: 3px solid var(--good); }
+.chr-av { font-size: 20px; line-height: 1.3; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+.chr-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.chr-mid .bar { height: 5px; }
+.chr-row .dip-btns { display: flex; flex-wrap: wrap; gap: 3px; max-width: 132px; justify-content: flex-end; }
+.chr-row .dip-btns .mini-btn { padding: 2px 6px; font-size: 12px; }
+
+/* --- ناوگان --- */
+.fleet {
+  background: linear-gradient(180deg, rgba(60,90,120,.10), rgba(255,240,200,.03));
+  border: 1px solid rgba(80,66,40,.45); border-radius: 11px; padding: 8px 10px; margin-bottom: 6px;
+  display: flex; flex-direction: column; gap: 5px; transition: border-color .12s;
+}
+.fleet:hover { border-color: rgba(217,177,102,.5); }
+.fleet.sel { border-color: var(--gold2); box-shadow: 0 0 12px rgba(217,177,102,.22); }
+.fl-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12.5px; }
+.fl-head .flag { width: 26px; height: 17px; }
+.fl-ships { display: flex; flex-wrap: wrap; gap: 3px; }
+.fleet .bar { height: 5px; }
+.dock-prov {
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42);
+  border-radius: 10px; padding: 8px 10px; margin-bottom: 6px;
+}
+.ship-buy { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.ship-buy .plus { font-size: 15px; padding: 4px 7px; flex-direction: column; gap: 1px; }
+.ship-buy .plus .cost { font-size: 8.5px; }
+.zone-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 4px 8px; border-radius: 7px; font-size: 11.5px;
+}
+.zone-row:nth-child(odd) { background: rgba(60,90,120,.10); }
+
+/* --- جاسوسی --- */
+.op-row, .route-row {
+  display: flex; gap: 9px; align-items: center; padding: 6px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+}
+.op-ic { font-size: 18px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.spy-target {
+  background: linear-gradient(180deg, rgba(40,30,50,.30), rgba(255,240,200,.02));
+  border: 1px solid rgba(80,66,40,.45); border-radius: 11px; padding: 9px 10px; margin-bottom: 7px;
+}
+.op-buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.op-buttons .mini-btn { font-size: 10.5px; padding: 3px 7px; }
+.mini-btn.dis-op { opacity: .35; }
+.intel-box {
+  background: rgba(143,188,106,.08); border: 1px dashed rgba(143,188,106,.4);
+  border-radius: 8px; padding: 6px 9px; margin: 5px 0;
+}
+.intel-box .kv { gap: 10px; margin: 3px 0 0; }
+.kv.small > div { font-size: 11px; }
+
+/* --- جامعه --- */
+.mov-row {
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42);
+  border-right: 3px solid transparent; border-radius: 10px; padding: 8px 10px; margin-bottom: 6px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.mov-row.mid { border-right-color: var(--mid); }
+.mov-row.bad { border-right-color: var(--bad); background: rgba(208,90,74,.07); }
+.civil-war {
+  background: linear-gradient(180deg, rgba(110,42,32,.5), rgba(76,29,21,.4));
+  border: 1px solid #a04a38; border-radius: 10px; padding: 10px 12px; margin: 8px 0;
+  font-size: 12.5px; line-height: 1.8;
+  animation: cwpulse 2.4s ease-in-out infinite;
+}
+.civil-war.warn { background: rgba(217,164,65,.12); border-color: var(--mid); animation: none; }
+@keyframes cwpulse { 50% { box-shadow: 0 0 18px rgba(208,90,74,.35); } }
+
+/* --- تجارت --- */
+.tax-row { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.tax-btn {
+  flex: 1 1 84px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: rgba(255,240,200,.04); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 9px; padding: 6px 4px; font-size: 16px; transition: border-color .12s, background .12s;
+}
+.tax-btn span { font-size: 9.5px; color: var(--ink-dim); }
+.tax-btn:hover { border-color: var(--gold); }
+.tax-btn.on { border-color: var(--gold2); background: rgba(217,177,102,.15); }
+.tax-btn.on span { color: #ffeec4; }
+.comp-row {
+  display: flex; gap: 9px; align-items: center; padding: 7px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+}
+.comp-row.owned { border-color: rgba(217,177,102,.55); background: rgba(217,177,102,.09); }
+.new-route { display: flex; gap: 5px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.sel-in {
+  background: #241e14; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 8px; font-size: 11.5px; font-family: inherit; flex: 1 1 120px;
+}
+.sel-in:focus { border-color: var(--gold); outline: none; }
+
+/* ================================================================
+   ===== لایه‌ی جلای طلا و مرمر: عمق، بافت و درخشش سینمایی =====
+   ================================================================ */
+:root {
+  --gold-leaf: linear-gradient(160deg, #fff3cf 0%, #e8c766 26%, #a8842f 52%, #f2dfa4 74%, #8d6c25 100%);
+  --marble: 
+    radial-gradient(120% 80% at 20% 0%, rgba(255,246,224,.055), transparent 62%),
+    radial-gradient(90% 70% at 85% 100%, rgba(150,190,225,.035), transparent 60%);
+  --edge-hi: inset 0 1px 0 rgba(255,244,214,.11);
+  --edge-lo: inset 0 -1px 0 rgba(0,0,0,.42);
+}
+
+/* --- رگه‌های مرمر روی پس‌زمینه‌ی پنل‌ها --- */
+#panel-wrap::before, .modal-box::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  border-radius: inherit; opacity: .55;
+  background: var(--marble),
+    repeating-linear-gradient(122deg, transparent 0 38px, rgba(255,240,205,.016) 38px 39px, transparent 39px 84px),
+    repeating-linear-gradient(64deg,  transparent 0 57px, rgba(190,215,240,.012) 57px 58px, transparent 58px 121px);
+}
+#panel-wrap > *, .modal-box > * { position: relative; z-index: 1; }
+
+/* --- نوار بالا: شیشه‌ی دودی با لبه‌ی طلا --- */
+#topbar {
+  backdrop-filter: blur(14px) saturate(1.15);
+  box-shadow: 0 6px 26px rgba(0,0,0,.5), var(--edge-hi);
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, rgba(217,177,102,.55), rgba(232,199,102,.85), rgba(217,177,102,.55), transparent) 1;
+}
+#topbar .stat {
+  transition: color .15s, text-shadow .15s, transform .12s;
+}
+#topbar .stat:hover { color: #ffeec4; text-shadow: 0 0 12px rgba(232,199,102,.45); transform: translateY(-1px); }
+
+/* --- داک: دکمه‌های برجسته با درخشش طلایی --- */
+#dock { backdrop-filter: blur(12px) saturate(1.1); }
+.dock-btn {
+  position: relative; overflow: hidden;
+  box-shadow: var(--edge-hi), var(--edge-lo), 0 3px 10px rgba(0,0,0,.35);
+  transition: transform .14s cubic-bezier(.34,1.56,.64,1), box-shadow .16s, background .16s;
+}
+.dock-btn::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,246,220,.14), transparent 46%);
+}
+.dock-btn:hover { transform: translateY(-3px) scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,.5), 0 0 18px rgba(217,177,102,.3), var(--edge-hi); }
+.dock-btn.on {
+  background: linear-gradient(180deg, rgba(232,199,102,.24), rgba(140,105,40,.16));
+  box-shadow: 0 0 0 1px var(--gold2), 0 0 22px rgba(232,199,102,.35), var(--edge-hi);
+}
+.dock-btn.on::before {
+  content: ''; position: absolute; bottom: 0; left: 22%; right: 22%; height: 2px;
+  background: var(--gold2); box-shadow: 0 0 10px var(--gold2); border-radius: 2px 2px 0 0;
+}
+
+/* --- سرتیتر بخش‌ها: خط طلایی محو‌شونده --- */
+.sec > h4, .sec-title {
+  position: relative; padding-bottom: 5px;
+}
+.sec > h4::after, .sec-title::after {
+  content: ''; position: absolute; bottom: 0; right: 0; width: 100%; height: 1px;
+  background: linear-gradient(270deg, rgba(217,177,102,.65), rgba(217,177,102,.14) 45%, transparent 80%);
+}
+
+/* --- نوارها: درخشش داخلی + انیمیشن پرشدن --- */
+.bar { position: relative; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
+.bar > i, .bar > span, .bar > div {
+  transition: width .45s cubic-bezier(.22,.9,.3,1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+}
+.bar::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.16), transparent 55%);
+}
+
+/* --- دکمه‌های اصلی: طلای برجسته --- */
+.btn.primary, .mbtn.primary {
+  background: var(--gold-leaf); color: #2a2013; border-color: #f0dca8; font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255,255,255,.35);
+  box-shadow: 0 4px 16px rgba(217,177,102,.28), inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 4px rgba(120,90,30,.35);
+}
+.btn.primary:hover, .mbtn.primary:hover { filter: brightness(1.08); box-shadow: 0 6px 24px rgba(232,199,102,.42), inset 0 1px 0 rgba(255,255,255,.6); }
+
+/* --- کارت‌ها: بالا آمدن نرم --- */
+.nation-card, .tl-card, .q-item, .bld, .tech, .army, .rank {
+  transition: transform .14s cubic-bezier(.34,1.4,.64,1), border-color .14s, box-shadow .14s, background .14s;
+}
+.nation-card:hover, .tl-card:hover, .bld:hover, .tech:hover, .army:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0,0,0,.42), 0 0 0 1px rgba(217,177,102,.28);
+}
+
+/* --- برچسب‌ها --- */
+.tag { box-shadow: var(--edge-hi); letter-spacing: .2px; }
+
+/* --- مودال: قاب طلایی و ورود سینمایی --- */
+.modal-box {
+  position: relative;
+  box-shadow: 0 24px 80px rgba(0,0,0,.75), 0 0 0 1px rgba(217,177,102,.30), var(--edge-hi);
+  animation: modalIn .28s cubic-bezier(.2,.9,.25,1);
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(.975); } }
+.modal-box::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  padding: 1px; background: linear-gradient(150deg, rgba(255,243,207,.5), rgba(168,132,47,.12) 40%, rgba(242,223,164,.35));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+
+/* --- نوار مُدهای نقشه --- */
+#mapmodes {
+  backdrop-filter: blur(10px);
+  flex-wrap: wrap; justify-content: center; max-width: min(78vw, 860px);
+  background: rgba(16,13,9,.55); padding: 5px 7px; border-radius: 12px;
+  border: 1px solid rgba(217,177,102,.18);
+}
+#mapmodes .mm-btn { padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+.mm-btn { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
+.mm-btn:hover { box-shadow: 0 0 12px rgba(217,177,102,.22); }
+.mm-btn.on { box-shadow: 0 0 0 1px var(--gold2), 0 0 14px rgba(232,199,102,.28); }
+
+/* --- مینی‌مپ: قاب طلایی --- */
+#minimap {
+  box-shadow: 0 10px 30px rgba(0,0,0,.6), 0 0 0 1px rgba(217,177,102,.35), var(--edge-hi);
+  border-radius: 10px;
+}
+
+/* --- توست‌ها --- */
+.toast { box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 0 0 1px rgba(217,177,102,.2), var(--edge-hi); backdrop-filter: blur(10px); }
+
+/* --- دسترس‌پذیری: احترام به کاهش حرکت --- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* ================================================================
+   ===== سلسله، جهان و قدرت‌های بزرگ =====
+   ================================================================ */
+
+/* --- کارت شخص سلطنتی --- */
+.roy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; }
+.roy-card {
+  background: linear-gradient(180deg, rgba(217,177,102,.10), rgba(255,240,200,.02));
+  border: 1px solid rgba(217,177,102,.30); border-radius: 12px; padding: 9px 10px;
+  display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden;
+}
+.roy-card::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 70% at 50% 0%, rgba(255,244,214,.09), transparent 62%);
+}
+.roy-card.empty { border-style: dashed; opacity: .7; align-items: center; justify-content: center; min-height: 90px; }
+.roy-lbl { font-size: 10px; color: var(--gold2); letter-spacing: .6px; font-weight: 800; }
+.roy-head { display: flex; gap: 8px; align-items: center; }
+.roy-av { font-size: 26px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.55)); }
+.roy-id b { font-size: 13.5px; color: #ffeec4; }
+.age-b { font-size: 10.5px; }
+.hp-b { font-size: 10.5px; font-weight: 700; }
+.roy-stats { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+.roy-stats.small { gap: 6px; font-size: 10px; }
+.stat-dots { color: var(--gold2); letter-spacing: -.5px; font-size: 9px; }
+.rt-row { display: flex; flex-wrap: wrap; gap: 3px; }
+.rt-chip {
+  font-size: 9.5px; padding: 2px 6px; border-radius: 10px; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.rt-chip.gd { background: rgba(143,188,106,.14); border-color: rgba(143,188,106,.4); color: #cfe6b4; }
+.rt-chip.bd { background: rgba(208,90,74,.14); border-color: rgba(208,90,74,.4); color: #f0bfb4; }
+.edu-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.edu-row .mini-btn.on { background: rgba(232,199,102,.22); border-color: var(--gold2); }
+
+/* --- تراشه‌های ضریب --- */
+.mod-row { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.mod-row.small .mod-chip { font-size: 9px; padding: 1px 5px; }
+.mod-chip { font-size: 10px; padding: 2px 6px; border-radius: 8px; background: rgba(255,240,200,.06); border: 1px solid var(--line); }
+.mod-chip.gd { color: #b8dd94; border-color: rgba(143,188,106,.35); }
+.mod-chip.bd { color: #eab0a4; border-color: rgba(208,90,74,.35); }
+
+/* --- قانون جانشینی --- */
+.succ-list { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+.succ-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+}
+.succ-row.on { border-color: var(--gold2); background: rgba(217,177,102,.11); }
+.succ-main { flex: 1; min-width: 0; }
+.succ-main b { font-size: 12px; }
+
+/* --- خاندان‌ها --- */
+.fac-row {
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42);
+  border-right: 3px solid rgba(217,177,102,.4); border-radius: 10px;
+  padding: 8px 10px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 4px;
+}
+.fac-row.pretender {
+  border-right-color: var(--bad); background: rgba(208,90,74,.09);
+  animation: facpulse 2.6s ease-in-out infinite;
+}
+@keyframes facpulse { 50% { box-shadow: 0 0 16px rgba(208,90,74,.28); } }
+.fac-head { display: flex; gap: 8px; align-items: center; }
+.fac-ic { font-size: 19px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.fac-id { flex: 1; min-width: 0; }
+.fac-row .bar-row { gap: 6px; }
+.bar-v { font-size: 10px; min-width: 24px; text-align: left; color: var(--ink-dim); }
+
+/* --- وصلت و اخبار --- */
+.mar-row, .news-row {
+  display: flex; gap: 9px; align-items: center; padding: 6px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.4); border-radius: 10px;
+}
+.mar-mid, .news-mid { flex: 1; min-width: 0; }
+.news-row { align-items: flex-start; }
+.news-ic { font-size: 16px; }
+.news-mid > div { font-size: 11.5px; line-height: 1.7; }
+.union-box {
+  background: linear-gradient(90deg, rgba(217,177,102,.16), rgba(217,177,102,.05));
+  border: 1px solid rgba(217,177,102,.45); border-radius: 10px; padding: 8px 11px; font-size: 12.5px;
+}
+
+/* --- بناهای عظیم و آثار --- */
+.wonder-row, .lm-row {
+  display: flex; gap: 10px; align-items: center; padding: 8px 10px; margin-bottom: 6px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 11px;
+}
+.lm-row { cursor: pointer; transition: border-color .12s, transform .12s; }
+.lm-row:hover { border-color: rgba(217,177,102,.5); transform: translateX(-2px); }
+.wonder-row.mine { border-color: rgba(217,177,102,.55); background: rgba(217,177,102,.10); }
+.wonder-row.taken { opacity: .55; }
+.wonder-row.building { border-color: var(--gold2); background: rgba(217,177,102,.12); }
+.wo-ic, .lm-ic { font-size: 24px; filter: drop-shadow(0 2px 5px rgba(0,0,0,.5)); }
+.wo-mid, .lm-mid { flex: 1; min-width: 0; }
+.bar > i.gold { background: linear-gradient(90deg, var(--gold2), #a8842f); }
+
+/* --- قدرت‌های بزرگ --- */
+.gp-row {
+  display: flex; gap: 9px; align-items: center; padding: 7px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.03); border: 1px solid rgba(80,66,40,.38); border-radius: 10px;
+}
+.gp-row.gp { border-color: rgba(217,177,102,.45); background: rgba(217,177,102,.07); }
+.gp-row.me { box-shadow: inset 0 0 0 1px var(--gold2); }
+.gp-rank { font-size: 13px; font-weight: 900; color: var(--gold2); min-width: 20px; text-align: center; }
+.gp-mid { flex: 1; min-width: 0; }
+
+/* --- بحران --- */
+.crisis-box {
+  background: linear-gradient(180deg, rgba(208,90,74,.10), rgba(255,240,200,.02));
+  border: 1px solid rgba(208,90,74,.35); border-radius: 11px; padding: 9px 11px; margin-bottom: 7px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.crisis-box.mine { border-color: var(--bad); box-shadow: 0 0 14px rgba(208,90,74,.2); }
+.crisis-bar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.5); }
+.cb-a { background: linear-gradient(90deg, #d05a4a, #a8402f); }
+.cb-d { background: linear-gradient(90deg, #3a7fa8, #2b5d8a); }
+
+/* --- استان بکر --- */
+.pv-tribe-ic { font-size: 22px; }
+.nc-idea {
+  margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(217,177,102,.28);
+  font-size: 10.5px;
+}
+.nc-idea b { color: var(--gold2); font-size: 11px; }
+.nc-idea .mod-row { justify-content: center; margin-top: 3px; }
+
+/* ---------- شورای درباری ---------- */
+.seat-card{background:linear-gradient(180deg,rgba(217,177,102,.07),rgba(0,0,0,.16));border:1px solid var(--line);
+  border-radius:10px;padding:8px 10px;margin:7px 0}
+.seat-card.empty-seat{border-style:dashed;opacity:.85}
+.seat-h{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.seat-i{font-size:20px;filter:drop-shadow(0 0 6px rgba(217,177,102,.35))}
+.seat-n{display:flex;flex-direction:column;line-height:1.35}
+.seat-n small{color:var(--dim,#9c9384);font-size:11px}
+.plot-box{border:1px solid var(--bad);border-radius:10px;padding:9px 11px;
+  background:linear-gradient(180deg,rgba(200,70,60,.13),rgba(0,0,0,.2))}
+.plot-box>div{margin:3px 0}
+.warn-box{margin-top:8px;padding:7px 10px;border-radius:8px;border:1px solid var(--mid);
+  background:rgba(210,160,60,.12);font-size:12px}
+.stat-dots{letter-spacing:1px;color:var(--gold)}
+/* فهرست نامزدها در مودال */
+.cand-list{display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow:auto;margin-top:6px}
+.cand-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;
+  background:linear-gradient(180deg,rgba(217,177,102,.08),rgba(0,0,0,.18));border:1px solid var(--line);
+  border-radius:9px;padding:9px 11px;cursor:pointer;font-family:inherit;color:var(--ink);text-align:right}
+.cand-row:hover{border-color:var(--gold);background:linear-gradient(180deg,rgba(217,177,102,.16),rgba(0,0,0,.2))}
+.cand-n{display:flex;flex-direction:column;line-height:1.4}
+.cand-n small{color:var(--dim,#9c9384);font-size:11px}
+.cand-s{color:var(--gold);white-space:nowrap;letter-spacing:1px}
+
+/* ===== پروژه‌های ملی و فرمان‌های سلطنتی ===== */
+.proj-card {
+  background: linear-gradient(180deg, rgba(48,40,26,.55), rgba(32,26,17,.55));
+  border: 1px solid var(--line); border-left: 3px solid var(--gold);
+  border-radius: 9px; padding: 8px 10px; margin: 7px 0;
+}
+.proj-card.halted { border-left-color: var(--bad); }
+.proj-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.proj-i { font-size: 11.5px; line-height: 1.7; margin: 3px 0; }
+.proj-m { font-size: 11px; margin-top: 4px; opacity: .92; }
+.proj-done { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag {
+  display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px;
+  background: rgba(60,50,30,.6); border: 1px solid var(--line);
+}
+.tag.good { border-color: rgba(143,188,106,.55); color: #cfe6b4; }
+.decree-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px dashed rgba(120,100,60,.25);
+}
+.decree-row:last-child { border-bottom: none; }
+.decree-row .dim { font-size: 11px; margin-top: 2px; }
+/* نشان هشدار روی دکمه‌ی داک (آزمایشگاه بیکار) */
+.dock-btn.urgent { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad), 0 0 16px rgba(200,80,60,.4); }
+.dock-btn.urgent[data-badge]:not([data-badge=""])::after { background: var(--bad); }
+
+/* ===== کارنامه‌ی پایان قرن ===== */
+.end-story {
+  font-size: 13.5px; line-height: 2; margin: 8px 0 14px;
+  color: #ecd9ab; text-align: center; font-style: italic;
+}
+.scorecard {
+  background: rgba(20,16,10,.5); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 12px; margin: 10px 0;
+}
+.sc-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 0; font-size: 12.5px;
+  border-bottom: 1px dashed rgba(120,100,60,.22);
+}
+.sc-row:last-child { border-bottom: none; }
+.sc-row > span:first-child { flex: 1; }
+.sc-row > b { color: var(--gold2); min-width: 74px; text-align: left; }
+.sc-row > .dim { font-size: 11px; min-width: 92px; text-align: left; }
+
+/* ---------- نوار روند (اسپارک‌لاین سالانه) ---------- */
+.trendstrip { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 8px; margin: 6px 0 4px; }
+.tr-item { background: rgba(255,240,200,.035); border: 1px solid var(--line); border-radius: 10px; padding: 8px 9px 6px; }
+.tr-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; margin-bottom: 2px; }
+.tr-top b { color: var(--gold2); font-size: 13px; }
+.tr-item .spark { display: block; width: 100%; height: 32px; }
+.tr-foot { font-size: 10.5px; margin-top: 2px; }
+.tr-foot.good { color: var(--good); }
+.tr-foot.bad { color: var(--bad); }
+
+/* ---------- نمودارهای صفحه‌ی پایان ---------- */
+.endcharts { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.ec-title { font-size: 13px; font-weight: 800; color: var(--gold2); margin-bottom: 8px; }
+.ec-item { margin-bottom: 10px; }
+.ec-head { font-size: 11.5px; color: var(--ink); opacity: .8; margin-bottom: 2px; }
+.bigchart { display: block; width: 100%; }
+
+/* ---------- سهمیه‌ی فرزندان در پنل خانواده ---------- */
+.quota-line { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 4px 0 8px; }
+.qb { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255,240,200,.04); color: var(--ink); opacity: .75; }
+.qb.on { border-color: rgba(217,177,102,.65); color: var(--gold2); opacity: 1;
+  background: rgba(217,177,102,.10); }
