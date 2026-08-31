@@ -1028,3 +1028,10 @@ button { font-family: inherit; cursor: pointer; }
 .ec-item { margin-bottom: 10px; }
 .ec-head { font-size: 11.5px; color: var(--ink); opacity: .8; margin-bottom: 2px; }
 .bigchart { display: block; width: 100%; }
+
+/* ---------- سهمیه‌ی فرزندان در پنل خانواده ---------- */
+.quota-line { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 4px 0 8px; }
+.qb { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(255,240,200,.04); color: var(--ink); opacity: .75; }
+.qb.on { border-color: rgba(217,177,102,.65); color: var(--gold2); opacity: 1;
+  background: rgba(217,177,102,.10); }

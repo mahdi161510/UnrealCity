@@ -1015,7 +1015,15 @@ function panelFamily() {
   html += `<div class="fam-card me"><img class="fam-avatar" src="assets/family/prince.jpg" alt="">
     <div class="fam-mid"><b>${S.phase === 'prologue' ? 'شاهزاده' : 'فرمانروا'} — شما</b>
     <div class="fam-traits"><span class="chip">${S.phase === 'prologue' ? 'وارث تاج' : 'تاج‌دار'}</span>${per ? `<span class="chip">${per.icon} ${per.name}</span>` : ''}</div></div></div>`;
-  for (const m of S.family || []) {
+  // گروه‌بندی دربار: خویشاوندانِ خودِ فرمانروا از فرزندانِ او جدا می‌شوند.
+  // بدون این تفکیک، «شاهزاده مهرداد» (برادر) با فرزندان اشتباه گرفته می‌شد
+  // و کاربر گمان می‌کرد سقف دو فرزند شکسته است.
+  const famAll = S.family || [];
+  const kidsAll = famAll.filter(m => m.role === 'son' || m.role === 'daughter');
+  const kinAll = famAll.filter(m => m.role !== 'son' && m.role !== 'daughter');
+  const nSon = kidsAll.filter(m => m.role === 'son').length;
+  const nDau = kidsAll.filter(m => m.role === 'daughter').length;
+  const card = (m) => {
     const relPct = Math.max(0, Math.min(100, m.rel));
     const sub = m.alive ? '' : (m.fled ? '(گریخته — مدعی تاج)' : '(درگذشت)');
     html += `<div class="fam-card ${m.alive ? '' : 'dead'}">
@@ -1028,6 +1036,17 @@ function panelFamily() {
         <button class="mini-btn" data-act="talk" data-id="${m.id}" title="گفت‌وگو">💬</button>` : '<span class="dim">🕯️</span>'}
       </div>
     </div>`;
+  };
+  html += `<div class="sec">👶 فرزندان شما <span class="dim small">— سقف: یک پسر و یک دختر</span></div>`;
+  html += `<div class="quota-line">
+    <span class="qb ${nSon ? 'on' : ''}">👦 پسر ${fd(nSon)}/${fd(1)}</span>
+    <span class="qb ${nDau ? 'on' : ''}">👧 دختر ${fd(nDau)}/${fd(1)}</span>
+    <span class="dim small">فرزندِ درگذشته هم در سهمیه می‌ماند و جایگزین نمی‌شود</span>
+  </div>`;
+  html += kidsAll.length ? kidsAll.map(card).join('') : '<div class="empty">هنوز فرزندی به دنیا نیامده است</div>';
+  if (kinAll.length) {
+    html += `<div class="sec">👑 خویشاوندان و دربار <span class="dim small">— اینان فرزند شما نیستند</span></div>`;
+    html += kinAll.map(card).join('');
   }
   html += `<div class="dim hint">💬 با اعضای دربار گفت‌وگو کنید؛ رابطه‌ی بالاتر یاری بیشتری می‌آورد (و «درخواست یاری» را ممکن می‌سازد). رابطه‌ی پایین برادر، خواب‌های خطرناک می‌پروراند…</div>`;
   return { title: '🏰 دربار سلطنتی', html };

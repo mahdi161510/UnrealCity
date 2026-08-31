@@ -139,8 +139,8 @@ export function newGame(seed, opts) {
     fam.push(
       { id: 1, role: 'father', name: nations[playerIdx].ruler, avatar: FAMILY_PORTRAITS.father, rel: 72, age: 58, alive: true, traits: ['خویشتن‌دار', 'جهان‌دیده'], talkCd: 0, hist: [] },
       { id: 2, role: 'mother', name: 'ملکه ' + pick(rng, ['جهان‌بانو', 'ماه‌دخت', 'تاج‌الملوک', 'شیرین‌بانو']), avatar: FAMILY_PORTRAITS.mother, rel: 80, age: 52, alive: true, traits: ['مهربان', 'تدبیرگر'], talkCd: 0, hist: [] },
-      { id: 3, role: 'brother', name: 'شاهزاده ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
-      { id: 4, role: 'sister', name: 'شاهزاده ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
+      { id: 3, role: 'brother', name: 'شاهزاده‌برادر ' + pick(rng, SON_NAMES), avatar: FAMILY_PORTRAITS.brother, rel: 42, age: 24, alive: true, traits: ['جاه‌طلب', 'رقابت‌جو'], talkCd: 0, hist: [] },
+      { id: 4, role: 'sister', name: 'شاهدخت‌خواهر ' + pick(rng, DAUGHTER_NAMES), avatar: FAMILY_PORTRAITS.sister, rel: 62, age: 20, alive: true, traits: ['زیرک', 'شاعر'], talkCd: 0, hist: [] },
       { id: 5, role: 'vizier', name: 'وزیر ' + pick(rng, ['میرزا کاظم', 'میرزا حسن', 'میرزا تقی', 'میرزا ابوالقاسم']), avatar: FAMILY_PORTRAITS.vizier, rel: 68, age: 55, alive: true, traits: ['با تجربه', 'وفادار'], talkCd: 0, hist: [] },
     );
   }
