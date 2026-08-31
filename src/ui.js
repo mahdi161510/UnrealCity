@@ -50,6 +50,19 @@ export function initUI(state, renderer, h) {
   refreshDockBadges();
   if (UI.panel) openPanel(UI.panel);
   buildMapModeBar();
+  syncDockWidth();
+}
+
+// داک روی نمایشگر کوتاه به چند ستون می‌شکند؛ پنل و نوار مُدها باید
+// عرض واقعی‌اش را بدانند تا رویش نیفتند.
+export function syncDockWidth() {
+  const d = document.getElementById('dock');
+  if (!d) return;
+  const w = Math.ceil(d.getBoundingClientRect().width) + 16;
+  document.documentElement.style.setProperty('--dock-w', w + 'px');
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => syncDockWidth());
 }
 
 // ================== منوی آغاز ==================

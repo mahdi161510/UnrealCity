@@ -1783,7 +1783,8 @@ export function applyEventChoice(S, ev, optIdx) {
     if (tgt && tgt.owner === n.id) {
       if (fx.provUnrest) tgt.unrest = clamp((tgt.unrest || 0) + fx.provUnrest, 0, 100);
       if (fx.provDevast) tgt.devast = clamp((tgt.devast || 0) + fx.provDevast, 0, 10);
-      if (fx.provPop) for (const c of tgt.pops || []) c.size = Math.max(10, Math.round(c.size * (1 + fx.provPop)));
+      // p.pops یک شیء ساده است: { farmer: عدد, worker: عدد, ... } نه آرایه‌ای از {size}
+      if (fx.provPop) for (const k in (tgt.pops || {})) tgt.pops[k] = Math.max(10, tgt.pops[k] * (1 + fx.provPop));
       if (fx.provRes) { tgt.res[fx.provRes.k] = (tgt.res[fx.provRes.k] || 0) + fx.provRes.d; addLog(S, '⛏️', `منابع تازه‌ای در ${tgt.name} به کار افتاد.`); }
     }
   }
@@ -1854,7 +1855,7 @@ export function applyEventChoice(S, ev, optIdx) {
     }
   }
   if (fx.warLeverage) n.warScoreBonus = (n.warScoreBonus || 0) + 10;
-  if (fx.popGain) for (const p2 of S.map.provs) if (p2.owner === n.id) for (const c of p2.pops || []) c.size = Math.round(c.size * (1 + fx.popGain));
+  if (fx.popGain) for (const p2 of S.map.provs) if (p2.owner === n.id) for (const c in (p2.pops || {})) p2.pops[c] *= (1 + fx.popGain);
 
   if (fx.expedition) {
     const roll = Math.random();
@@ -1866,7 +1867,7 @@ export function applyEventChoice(S, ev, optIdx) {
     const f = S.evFlags || {};
     if (f.famine_ready) { addLog(S, '🍞', 'انبارهای پرِ شما، کشور را از قحطی گذراند.'); n.prestige = (n.prestige || 0) + 6; n.legitimacy = clamp((n.legitimacy ?? 60) + 5, 0, 100); for (const p2 of S.map.provs) if (p2.owner === n.id) p2.unrest = Math.max(0, (p2.unrest || 0) - 5); }
     else if (f.famine_ban) { addLog(S, '⚖️', 'بستن صادرات، بدترین را گرفت — اما بازرگانان زیان دیدند.'); for (const p2 of S.map.provs) if (p2.owner === n.id) p2.unrest = clamp((p2.unrest || 0) + 4, 0, 100); }
-    else { addLog(S, '💀', 'قحطی بی‌رحم بود؛ روستاها خالی شد.'); for (const p2 of S.map.provs) if (p2.owner === n.id) { p2.unrest = clamp((p2.unrest || 0) + 16, 0, 100); for (const c of p2.pops || []) c.size = Math.round(c.size * 0.96); } n.legitimacy = clamp((n.legitimacy ?? 60) - 8, 0, 100); n.prestige = (n.prestige || 0) - 5; }
+    else { addLog(S, '💀', 'قحطی بی‌رحم بود؛ روستاها خالی شد.'); for (const p2 of S.map.provs) if (p2.owner === n.id) { p2.unrest = clamp((p2.unrest || 0) + 16, 0, 100); for (const c in (p2.pops || {})) p2.pops[c] *= 0.96; } n.legitimacy = clamp((n.legitimacy ?? 60) - 8, 0, 100); n.prestige = (n.prestige || 0) - 5; }
   }
   if (fx.prod) { n.boom = (n.boom || 0) + Math.round(fx.prod * 100); }
 

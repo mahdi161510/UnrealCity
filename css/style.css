@@ -151,12 +151,18 @@ button { font-family: inherit; cursor: pointer; }
 .al-ic { font-size: 15px; }
 
 /* داک */
+/* داک: ستون‌بندی خودکار تا هیچ دکمه‌ای بیرون از صفحه نیفتد.
+   پیش‌تر با top:50% + translateY(-50%) و ارتفاع ثابت ۹۵۴px روی نمایشگرهای
+   کوتاه‌تر از ۱۰۱۸px از بالا و پایین بریده می‌شد و ۶ دکمه دست‌نیافتنی بود. */
 #dock {
-  position: absolute; top: 50%; right: 8px; transform: translateY(-50%); z-index: 18;
-  display: flex; flex-direction: column; gap: 6px;
+  position: absolute; top: 54px; bottom: 10px; right: 8px; z-index: 18;
+  display: flex; flex-direction: column; flex-wrap: wrap;
+  align-content: flex-start; justify-content: center; gap: 6px;
+  overflow: auto; scrollbar-width: none;
 }
+#dock::-webkit-scrollbar { display: none; }
 .dock-btn {
-  position: relative; width: 42px; height: 42px; font-size: 19px;
+  position: relative; flex: 0 0 auto; width: 42px; height: 42px; font-size: 19px;
   background: linear-gradient(180deg, rgba(40,33,22,.95), rgba(28,23,15,.95));
   border: 1px solid var(--line); border-radius: 11px; color: var(--ink);
   transition: transform .1s, border-color .1s;
@@ -171,7 +177,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* پنل */
 #panel-wrap {
-  position: absolute; top: 54px; right: 58px; bottom: 12px; width: 420px; max-width: 62vw; z-index: 17;
+  position: absolute; top: 54px; right: var(--dock-w, 58px); bottom: 12px; width: 420px; max-width: 62vw; z-index: 17;
   display: flex; flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line); border-radius: 14px;
@@ -415,13 +421,19 @@ button { font-family: inherit; cursor: pointer; }
 /* مینی‌مپ و مدهای نقشه */
 #bottom-left { position: absolute; left: 10px; bottom: 10px; z-index: 16; }
 #minimap { border: 2px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); cursor: crosshair; background: #0c1420; }
+/* مُدهای نقشه: ۱۳ دکمه ≈ ۱۱۴۰px بود و در یک ردیف بدون شکست روی نمایشگر
+   کوچک‌تر از ~۱۴۰۰px با مینی‌مپ و داک برخورد می‌کرد. حالا می‌شکند و
+   حاشیه‌ی مینی‌مپ (چپ) و داک (راست) را نگه می‌دارد. */
 #mapmodes {
-  position: absolute; right: 50%; transform: translateX(50%); bottom: 10px; z-index: 16;
-  display: flex; gap: 5px;
+  position: absolute; bottom: 10px; z-index: 16;
+  left: 208px; right: calc(var(--dock-w, 58px) + 8px);
+  display: flex; flex-wrap: wrap; gap: 5px;
+  justify-content: center; align-items: flex-end;
 }
 .mm-btn {
   background: rgba(28,23,15,.92); color: var(--ink); border: 1px solid var(--line);
   border-radius: 9px; padding: 6px 12px; font-size: 11.5px;
+  white-space: nowrap; flex: 0 0 auto;
 }
 .mm-btn.on { background: #4c3a17; border-color: var(--gold2); color: #ffeec4; }
 
@@ -467,6 +479,12 @@ button { font-family: inherit; cursor: pointer; }
 #help-body h3 { color: var(--gold); font-size: 14px; margin: 12px 0 4px; }
 #help-body ul { padding-right: 18px; line-height: 2; font-size: 12.5px; }
 #help-body p { line-height: 1.9; }
+
+/* نمایشگر کوتاه: دکمه‌ها کمی کوچک‌تر تا ستون‌های داک کمتر شود */
+@media (max-height: 780px) {
+  .dock-btn { width: 37px; height: 37px; font-size: 17px; }
+  #dock { gap: 5px; }
+}
 
 @media (max-width: 900px) {
   #panel-wrap { width: calc(100vw - 70px); right: 54px; }
