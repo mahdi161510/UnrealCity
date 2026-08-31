@@ -19,6 +19,8 @@ import { startShip, cancelShip, orderFleet, setBlockade, loadArmy, unloadArmy, f
 import { startOp, abortOp } from './espionage.js';
 import { suppressMovement, appeaseMovement, culturalProgram } from './society.js';
 import { foundCompany, openRoute, closeRoute, setTariff, startColony, abandonColony } from './trade.js';
+import { eventImg } from './evart.js';
+import { series, sparkline as svgSpark, bigChart, trend } from './chronicle.js';
 
 export const UI = {
   selProv: -1, selArmy: null, hoverProv: -1, selFleet: null, hoverZone: -1,
@@ -235,6 +237,7 @@ function buildMapModeBar() {
     ['culture', '🌍 فرهنگ'], ['religion', '🕌 مذهب'],
     ['naval', '⚓ دریایی'], ['separatism', '🏴 جدایی‌طلبی'], ['devast', '💥 ویرانی'],
     ['houses', '🏰 خاندان‌ها'], ['regions', '🗺️ مناطق'], ['power', '🌟 قدرت'],
+    ['infamy', '😠 بدنامی'], ['projects', '🏗️ پروژه‌ها'],
   ];
   const bar = document.getElementById('mapmodes');
   bar.innerHTML = '';
@@ -876,6 +879,31 @@ function panelLog() {
 }
 
 // ---------- کشور (نمای کلی) ----------
+// نوار روند سالانه: اسپارک‌لاین شاخص‌های کلیدی از روی تاریخ‌نگار
+function trendStrip() {
+  const rows = (S.chronicle && S.chronicle.rows) || [];
+  if (rows.length < 3) return '';
+  const item = (key, ic, label, fmt) => {
+    const s2 = series(S, key);
+    const t = trend(S, key, 10);
+    const cls = t === null ? 'dim' : (t > 1 ? 'good' : (t < -1 ? 'bad' : 'dim'));
+    const arrow = t === null ? '' : (t > 1 ? '▲' : (t < -1 ? '▼' : '▬'));
+    const pct = t === null ? '' : `${arrow} ${fd(Math.abs(Math.round(t)))}٪`;
+    const last = s2[s2.length - 1] || 0;
+    return `<div class="tr-item">
+      <div class="tr-top"><span>${ic} ${label}</span><b>${fmt(last)}</b></div>
+      ${svgSpark(s2, { w: 150, h: 32 })}
+      <div class="tr-foot ${cls}">${pct}<span class="dim"> در ۱۰ سال</span></div>
+    </div>`;
+  };
+  return `<div class="sec">📈 روند ${fd(rows.length)} سال گذشته</div>
+  <div class="trendstrip">
+    ${item('gdp', '💰', 'تولید', v => fd(Math.round(v)))}
+    ${item('provs', '🗺️', 'استان', v => fd(v))}
+    ${item('battalions', '⚔️', 'گردان', v => fd(v))}
+    ${item('literacy', '📖', 'سواد', v => fd(Math.round(v)) + '٪')}
+  </div>`;
+}
 function panelCountry() {
   const pn = S.nations[S.playerId];
   const rk = SIM.ranking(S).filter(n => n.alive);
@@ -910,6 +938,7 @@ function panelCountry() {
     <div class="chart-box"><canvas id="cn-gdp" width="380" height="88"></canvas></div>
     <div class="sec">مسیر امید به زندگی</div>
     <div class="chart-box"><canvas id="cn-sol" width="380" height="66"></canvas></div>
+    ${trendStrip()}
     <div class="sec">ترکیب جمعیت</div>${rows}
     <div class="sec">مأموریت‌ها</div>
     <div class="dim">${fd(doneM)} از ${fd(MISSIONS.length)} تکمیل شده — برای جزئیات پنل 🎯 را ببینید</div>`,
@@ -1608,7 +1637,8 @@ function showEvent() {
   // رویدادهای کلیدی (آغاز خط زمانی، دوران شاهزادی، انتخابات) تا تصمیم باز می‌مانند
   const keyEv = !!(e.id && (String(e.id).startsWith('tl_') || String(e.id).startsWith('pr') || e.id === 'election' || S.phase === 'prologue'));
   const timed = !keyEv;
-  box.innerHTML = `${e.img ? `<img class="ev-img" src="${e.img}" alt="">` : `<div class="ev-ic">${e.icon}</div>`}
+  const evImg = eventImg(e);
+  box.innerHTML = `${evImg ? `<figure class="ev-art"><img class="ev-img" src="${evImg}" alt="" onerror="this.closest('.ev-art').remove()"><span class="ev-art-ic">${e.icon}</span></figure>` : `<div class="ev-ic">${e.icon}</div>`}
     <div class="ev-title">${esc(e.title)}</div>
     <div class="ev-tabs">
       <button class="ev-tab on" data-tab="orig">📜 نسخه‌ی اصلی</button>
@@ -1732,6 +1762,21 @@ function scorecard(st) {
     ${row('🏗️', 'پروژه‌های ملی', fd(st.projects))}
     ${row('🗿', 'بناهای عظیم', fd(st.wonders))}
     ${row('😠', 'بدنامی', fd(Math.round(st.infamy)), st.annexed ? fd(st.annexed) + ' ضمیمه' : 'بی‌ضمیمه')}
+  </div>
+  ${endCharts()}`;
+}
+// نمودار رشد امپراتوری در صفحه‌ی پایان
+function endCharts() {
+  const rows = (S.chronicle && S.chronicle.rows) || [];
+  if (rows.length < 3) return '';
+  const y0 = rows[0].y, y1 = rows[rows.length - 1].y;
+  const one = (key, ic, label, color) =>
+    `<div class="ec-item"><div class="ec-head">${ic} ${label}</div>${bigChart(S, key, { color })}</div>`;
+  return `<div class="endcharts">
+    <div class="ec-title">📈 روند امپراتوری — ${fd(y0)} تا ${fd(y1)}</div>
+    ${one('gdp', '💰', 'اقتصاد', '#d9b166')}
+    ${one('provs', '🗺️', 'گستره‌ی خاک', '#7fc08a')}
+    ${one('battalions', '⚔️', 'توان نظامی', '#c8776b')}
   </div>`;
 }
 function showEnd(icon, title, text) {

@@ -5,6 +5,7 @@ import { addLog } from './state.js';
 import { findPath } from './mapgen.js';
 import { projectMods, simProjects, simDecrees, aiProjects } from './projects.js';
 import { addInfamy, simInfamy, infamyMods, coalitionAgainst } from './infamy.js';
+import { simChronicle } from './chronicle.js';
 import { cabinetMods, charById, traitMods, commanderPower, addXP, stepCharacters, charsOf, makeChar, killChar, CABINET_KEYS } from './characters.js';
 import { simNaval, navyUpkeep, fleetsOf, blockadeLevel, navalStrength, SHIP_CLASSES, initNavy } from './naval.js';
 import { simEspionage, aiEspionage } from './espionage.js';
@@ -583,6 +584,7 @@ export function tick(state) {
   simProjects(state);
   simDecrees(state);
   simInfamy(state);
+  simChronicle(state);
   if (state.week % 13 === 0) refreshGreatPowers(state);
   simCrises(state);
   resolveCrisisWars(state);

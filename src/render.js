@@ -292,6 +292,23 @@ export class MapRenderer {
           rgb = hslToRgb(hue, 0.42, 0.48);
           if (p.owner < 0) { rgb = [rgb[0] * 0.55, rgb[1] * 0.55, rgb[2] * 0.55]; }  // بکر: تیره‌تر
         }
+      } else if (mode === 'infamy') {
+        // بدنامی مالک استان: از سبز آرام تا سرخ منفور
+        const own = state.nations[p.owner];
+        if (!own || !own.alive) { rgb = [48, 46, 42]; a = 130; }
+        else {
+          const t = clamp((own.infamy || 0) / 100, 0, 1);
+          rgb = [lerp(70, 200, t), lerp(120, 46, t), lerp(72, 38, t)];
+        }
+      } else if (mode === 'projects') {
+        // پروژه‌های ملیِ تکمیل‌شده‌ی مالک استان
+        const own = state.nations[p.owner];
+        if (!own || !own.alive) { rgb = [48, 46, 42]; a = 130; }
+        else {
+          const done = (own.projDone || []).length;
+          const t = clamp(done / 6, 0, 1);
+          rgb = [lerp(58, 226, t), lerp(54, 182, t), lerp(48, 92, t)];
+        }
       } else if (mode === 'power') {
         const own = state.nations[p.owner];
         if (!own || !own.alive) { rgb = [48, 46, 42]; a = 140; }
@@ -453,6 +470,8 @@ export class MapRenderer {
     this.drawArmies(state, t);
     this.drawBattles(state, t);
     this.drawSieges(state, t);
+    this.drawProjects(state, t);
+    this.drawInfamy(state, t);
     this.drawFx(state, dt);
     this.drawSelection(state, ui, t);
     this.updateWeather(state, dt);
@@ -914,6 +933,95 @@ export class MapRenderer {
       }
     }
   }
+  // ---------- پروژه‌های ملی در دست ساخت: داربست + نوار پیشرفت روی پایتخت ----------
+  drawProjects(state, t) {
+    if (state.timelineId !== 'victoria') return;
+    const list = state.projects;
+    if (!list || !list.length) return;
+    const ctx = this.ctx;
+    for (const pr of list) {
+      if (pr.done) continue;
+      const n = state.nations[pr.nid];
+      if (!n || !n.alive || n.capital == null) continue;
+      const p = state.map.provs[n.capital];
+      if (!p) continue;
+      const x = p.cx + 14, y = p.cy - 20;
+      const frac = clamp((pr.prog || 0) / 100, 0, 1);
+      ctx.save();
+      // داربست چوبی
+      ctx.strokeStyle = 'rgba(120,88,44,.95)'; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 12); ctx.lineTo(x, y - 2);
+      ctx.moveTo(x + 9, y + 12); ctx.lineTo(x + 9, y - 2);
+      ctx.moveTo(x - 1, y + 12); ctx.lineTo(x + 10, y + 12);
+      ctx.moveTo(x, y + 4); ctx.lineTo(x + 9, y + 4);
+      ctx.moveTo(x, y - 2); ctx.lineTo(x + 9, y - 2);
+      ctx.stroke();
+      // جرثقیل کوچک
+      ctx.beginPath(); ctx.moveTo(x + 9, y - 2); ctx.lineTo(x + 14, y - 6); ctx.stroke();
+      // نوار پیشرفت
+      const bw = 18;
+      ctx.fillStyle = 'rgba(20,16,10,.78)';
+      ctx.fillRect(x - 2, y + 15, bw, 3.4);
+      ctx.fillStyle = '#d9b166';
+      ctx.fillRect(x - 2, y + 15, bw * frac, 3.4);
+      ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 0.6;
+      ctx.strokeRect(x - 2, y + 15, bw, 3.4);
+      // تپش ملایم روی داربست
+      const pulse = 0.35 + 0.25 * Math.sin(t * 2.2 + pr.nid);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#ffd98a';
+      ctx.beginPath(); ctx.arc(x + 14, y - 6, 1.8, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ---------- بدنامی: هاله‌ی قرمز روی پایتخت کشورهای بدنام + خطوط ائتلاف ----------
+  drawInfamy(state, t) {
+    if (state.timelineId !== 'victoria') return;
+    const ctx = this.ctx;
+    for (const n of state.nations) {
+      if (!n || !n.alive || n.capital == null) continue;
+      const inf = n.infamy || 0;
+      if (inf < 30) continue;
+      const p = state.map.provs[n.capital];
+      if (!p) continue;
+      const sev = clamp((inf - 30) / 70, 0, 1);
+      const r = 12 + sev * 16;
+      const puls = 0.5 + 0.5 * Math.sin(t * 1.6 + n.id * 0.9);
+      ctx.save();
+      const g = ctx.createRadialGradient(p.cx, p.cy, 2, p.cx, p.cy, r);
+      g.addColorStop(0, `rgba(196,64,48,${(0.16 + sev * 0.26) * (0.7 + 0.3 * puls)})`);
+      g.addColorStop(1, 'rgba(196,64,48,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.cx, p.cy, r, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    // خطوط ائتلاف: از پایتخت هر عضو به پایتخت هدف
+    const cos = state.coalitions;
+    if (cos && cos.length) {
+      for (const co of cos) {
+        const tgt = state.nations[co.target];
+        if (!tgt || !tgt.alive || tgt.capital == null) continue;
+        const tp = state.map.provs[tgt.capital];
+        if (!tp) continue;
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.lineDashOffset = -t * 18;
+        ctx.strokeStyle = 'rgba(214,86,66,.62)';
+        ctx.lineWidth = 1.4;
+        for (const mid of (co.members || [])) {
+          const m = state.nations[mid];
+          if (!m || !m.alive || m.capital == null) continue;
+          const mp = state.map.provs[m.capital];
+          if (!mp) continue;
+          ctx.beginPath(); ctx.moveTo(mp.cx, mp.cy); ctx.lineTo(tp.cx, tp.cy); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
   drawCities(state, t) {
     const ctx = this.ctx;
     for (const p of state.map.provs) {
