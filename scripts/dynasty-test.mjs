@@ -2,7 +2,8 @@
 // «رویدادهای بزرگ نادر باشند» — دقیقاً همان چیزی که خواسته شده.
 import { newGame } from '../src/state.js';
 import { tick } from '../src/sim.js';
-import { rulerOf, heirOf, DYN_RARITY } from '../src/dynasty.js';
+import { rulerOf, heirOf, DYN_RARITY, allChildrenOf } from '../src/dynasty.js';
+import { applyEventChoice } from '../src/sim.js';
 import { mulberry32 } from '../src/utils.js';
 
 // شبیه‌سازی هفتگی از Math.random خام استفاده می‌کند؛ برای آن‌که این آزمون
@@ -146,6 +147,38 @@ console.log('\n— جهان: بناهای عظیم و وصلت‌ها —');
   ok(dup.length === 0, 'هر بنای عظیم تنها یک بار در جهان ساخته می‌شود');
   ok(done > 0, 'هوش مصنوعی بناهای عظیم می‌سازد (رقابت واقعی)');
   ok(marOffers <= 20, `پیشنهاد وصلت اسپم نیست (${marOffers} بار در ۶۴ سال)`);
+}
+
+// ================== سقف فرزندان: یک پسر و یک دختر ==================
+{
+  console.log('\n— سقف فرزندان (۱ پسر + ۱ دختر) —');
+  let worstS = 0, worstD = 0, worstWho = '', famBad = 0, courtSeatsOk = true, nobleMin = 99;
+  for (const seed of [777, 4242, 99]) {
+    const S = newGame(seed, { timelineId: 'victoria', scenario: 'balance', diff: 'normal', nationIdx: 0 });
+    for (let w = 0; w < 3328; w++) {
+      tick(S);
+      if (S.pendingEvent) applyEventChoice(S, S.pendingEvent, 0);
+    }
+    // سامانه‌ی سلسله: هیچ سلطنتیِ غیرنجیب بیش از سهمیه فرزند ندارد
+    for (const r of S.royals) {
+      if (r.isNoble) continue;
+      const kids = allChildrenOf(S, r);
+      const s = kids.filter(c => c.male).length, d = kids.filter(c => !c.male).length;
+      if (s > worstS || d > worstD) worstWho = `${r.name} (${s}پ/${d}د)`;
+      worstS = Math.max(worstS, s); worstD = Math.max(worstD, d);
+    }
+    // سامانه‌ی دربار سلطنتی
+    const fam = S.family.filter(m => m.role === 'son' || m.role === 'daughter');
+    if (fam.filter(k => k.role === 'son').length > 1) famBad++;
+    if (fam.filter(k => k.role === 'daughter').length > 1) famBad++;
+    // سقف نباید استخر نامزدهای شورا را بخشکاند
+    nobleMin = Math.min(nobleMin, S.royals.filter(r => r.alive && r.nation === S.playerId && r.isNoble).length);
+  }
+  console.log(`بیشینه در سلسله: ${worstS} پسر / ${worstD} دختر ${worstWho ? '— ' + worstWho : ''} | نقض دربار: ${famBad} | کمینه نجیب‌زاده: ${nobleMin}`);
+  ok(worstS <= 1, `هیچ فرمانروایی بیش از یک پسر ندارد (بیشینه ${worstS})`);
+  ok(worstD <= 1, `هیچ فرمانروایی بیش از یک دختر ندارد (بیشینه ${worstD})`);
+  ok(famBad === 0, 'پنل دربار سلطنتی هم دقیقاً یک پسر و یک دختر دارد');
+  ok(nobleMin >= 3, `سقف فرزندان استخر نامزدهای شورا را خالی نکرده (کمینه ${nobleMin})`);
 }
 
 console.log(fail ? `\n❌ ${fail} ادعا شکست خورد` : '\n✅ همه‌ی ادعاهای سلسله موفق');

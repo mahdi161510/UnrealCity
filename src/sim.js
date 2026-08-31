@@ -1898,12 +1898,15 @@ export function applyEventChoice(S, ev, optIdx) {
       sis.wed = true; familyRelAdjust(S, 'sister', 6);
     }
     else if (act === 'birthSweet') {
-      const role = Math.random() < 0.55 ? 'son' : 'daughter';
-      const nm = pick(Math.random, role === 'son' ? SON_NAMES : DAUGHTER_NAMES);
-      const child = addChild(S, role, nm);
-      if (spo) spo.rel = clamp(spo.rel + 8, 0, 100);
-      addLog(S, '🍼', `فرزند تازه‌ی خاندان، ${child.name}، چشم به جهان گشود!`);
-      for (const g in n.groups) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + 1.5;
+      // بازیکن حداکثر دو فرزند دارد: یک پسر و یک دختر. جنسیت بر پایه‌ی
+      // آنچه هنوز ندارد انتخاب می‌شود، نه شانس؛ وگرنه ممکن بود دو پسر شود.
+      const role = nextChildRole(S);
+      const child = role ? addChild(S, role, pick(Math.random, role === 'son' ? SON_NAMES : DAUGHTER_NAMES)) : null;
+      if (child) {
+        if (spo) spo.rel = clamp(spo.rel + 8, 0, 100);
+        addLog(S, '🍼', `فرزند تازه‌ی خاندان، ${child.name}، چشم به جهان گشود!`);
+        for (const g in n.groups) n.groups[g].apprBonus = (n.groups[g].apprBonus || 0) + 1.5;
+      }
     }
     else if (act === 'vizYes') familyRelAdjust(S, 'vizier', 5);
     else if (act === 'motherYes') familyRelAdjust(S, 'mother', 6);
@@ -1946,7 +1949,23 @@ function familyRelAdjust(S, who, d) {
   if (!m) return;
   m.rel = clamp(m.rel + d, 0, 100);
 }
+// ── سقف فرزندان بازیکن: دقیقاً یک پسر و یک دختر ──
+// مرده‌ها هم شمرده می‌شوند تا مرگ فرزند به تولد جایگزین منجر نشود.
+export const MAX_SONS = 1, MAX_DAUGHTERS = 1;
+function countKids(S, role) { return (S.family || []).filter(m => m.role === role).length; }
+// نقش فرزند بعدی: هرچه هنوز ندارد. اگر هر دو را دارد null.
+function nextChildRole(S) {
+  const needSon = countKids(S, 'son') < MAX_SONS;
+  const needDau = countKids(S, 'daughter') < MAX_DAUGHTERS;
+  if (needSon && needDau) return Math.random() < 0.5 ? 'son' : 'daughter';
+  if (needSon) return 'son';
+  if (needDau) return 'daughter';
+  return null;
+}
+export function canHaveChild(S) { return nextChildRole(S) !== null; }
 function addChild(S, role, name) {
+  // پاسبان نهایی: هیچ مسیری نباید از سقف عبور کند.
+  if (countKids(S, role) >= (role === 'son' ? MAX_SONS : MAX_DAUGHTERS)) return null;
   const m = { id: S.nextFamId++, role, name: (role === 'son' ? 'شاهزاده ' : 'شاهدخت ') + name, avatar: role === 'son' ? FAMILY_PORTRAITS.son : FAMILY_PORTRAITS.daughter, rel: 88, age: 0, alive: true, traits: pick(Math.random, [['کنجکاو'], ['سرافراز'], ['هنرمند'], ['ورزنده'], ['کتاب‌خوان']]), talkCd: 0, hist: [] };
   S.family.push(m);
   return m;
@@ -2003,7 +2022,7 @@ function stepFamily(S) {
         { label: 'نامزد را رد کن', hint: 'خواهر خل دلخور (−۸)', fx: { familyAct: 'sisNo', familyRel: { who: 'sister', d: -8 } } },
       ] } });
   }
-  if (spo && spo.rel > 55 && kids.length < 4 && (S.week - (S._crownedWk || 0)) > 100) {
+  if (spo && spo.rel > 55 && canHaveChild(S) && (S.week - (S._crownedWk || 0)) > 100) {
     cands.push({ w: 3, ev: { id: 'birth', icon: '🍼', img: spo.avatar, title: 'شادی در قصر',
       text: 'پزشک دربار خبر شادی داد: شهبانو باردار است و دربار به شکوه آماده‌ی جشن می‌شود!',
       t2: 'خبر خوب! شهبانو بارداره و قراره یه وارث تازه به دنیا بیاد. جشن بگیریم یا بی‌سروصدا بگذرونیمش؟',
@@ -2036,7 +2055,7 @@ function stepFamily(S) {
   // birth استثناست چون هر تولد رویداد تازه‌ای است، ولی سقف می‌گیرد.
   const fresh = cands.filter(c => {
     const id = c.ev.id;
-    if (id === 'birth') return (S.evSeen[id] || 0) < 4;
+    if (id === 'birth') return (S.evSeen[id] || 0) < (MAX_SONS + MAX_DAUGHTERS);
     return !(S.evSeen[id] > 0);
   });
   if (!fresh.length) return;

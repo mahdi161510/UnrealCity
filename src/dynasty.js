@@ -6,7 +6,7 @@
 // اصل طراحی: «رویدادهای بزرگ باید نادر باشند». همه‌ی نرخ‌ها در DYN_RARITY متمرکز شده‌اند
 // تا با یک عدد بتوان کل بازی را تنظیم کرد.
 
-import { clamp, pick, mulberry32 } from './utils.js';
+import { clamp, pick, mulberry32, shuffled } from './utils.js';
 
 // ================== تنظیم نُدرت ==================
 // هر عدد ضریبِ شانس در هر «بررسی» است. بررسی‌ها هفتگی‌اند مگر خلافش گفته شود.
@@ -149,6 +149,56 @@ export function royalById(S, id) { return (S.royals || []).find(r => r.id === id
 export function rulerOf(S, nid) { const n = S.nations[nid]; return n?.dyn ? royalById(S, n.dyn.rulerId) : null; }
 export function heirOf(S, nid) { const n = S.nations[nid]; return n?.dyn?.heirId ? royalById(S, n.dyn.heirId) : null; }
 export function childrenOf(S, r) { return (r?.childrenIds || []).map(id => royalById(S, id)).filter(c => c && c.alive); }
+
+// ── سقف فرزندان دودمان حاکم: دقیقاً یک پسر و یک دختر ──
+// مرده‌ها هم شمرده می‌شوند (سقف مادام‌العمر)، پس مرگ وارث با تولد
+// جایگزین جبران نمی‌شود و پیامد سنگینی دارد.
+// نجیب‌زادگان (isNoble) مشمول نیستند: آن‌ها استخر نامزدهای شورا هستند
+// و محدودکردنشان دوباره دربار را خالی می‌کند.
+export const DYN_MAX_SONS = 1, DYN_MAX_DAUGHTERS = 1;
+export function allChildrenOf(S, r) { return (r?.childrenIds || []).map(id => royalById(S, id)).filter(Boolean); }
+// فرزندان اضافه‌ی یک تاج‌گرفته را به خویشاوند تبدیل می‌کند تا سقف
+// «یک پسر و یک دختر» برقرار شود. کسی حذف نمی‌شود — فقط پیوند
+// فرزندی برداشته می‌شود؛ شخص می‌ماند و همچنان نامزد کرسی‌های شورا است.
+export function trimToQuota(S, king) {
+  if (!king) return 0;
+  const kids = allChildrenOf(S, king);
+  let moved = 0;
+  for (const male of [true, false]) {
+    const cap = male ? DYN_MAX_SONS : DYN_MAX_DAUGHTERS;
+    // بزرگ‌ترها می‌مانند: وارث طبیعی نباید ناگهان عوض شود
+    const group = kids.filter(c => !!c.male === male).sort((a, b) => b.age - a.age);
+    for (const extra of group.slice(cap)) {
+      king.childrenIds = (king.childrenIds || []).filter(id => id !== extra.id);
+      const mo = extra.motherId != null ? royalById(S, extra.motherId) : null;
+      if (mo) mo.childrenIds = (mo.childrenIds || []).filter(id => id !== extra.id);
+      extra.fatherId = null; extra.motherId = null;
+      extra.isNoble = true;          // به استخر نجیب‌زادگان/نامزدهای شورا برمی‌گردد
+      extra.house = king.house;      // هم‌خاندان می‌ماند
+      moved++;
+    }
+  }
+  if (moved) recalcHeir(S, king.nation);
+  return moved;
+}
+
+// نقش فرزند بعدی، یا null اگر سهمیه پر است.
+// هر دو والد سنجیده می‌شوند: نوزاد به شجره‌ی هر دو افزوده می‌شود، پس اگر
+// همسر از پیش فرزند داشته باشد سهمیه‌ی او هم نباید بشکند.
+export function nextRoyalChildRole(S, ...parents) {
+  const ps = parents.filter(p => p && !p.isNoble);
+  if (!ps.length) return Math.random() < 0.5 ? 'son' : 'daughter';
+  let needSon = true, needDau = true;
+  for (const p of ps) {
+    const kids = allChildrenOf(S, p);
+    if (kids.filter(c => c.male).length >= DYN_MAX_SONS) needSon = false;
+    if (kids.filter(c => !c.male).length >= DYN_MAX_DAUGHTERS) needDau = false;
+  }
+  if (needSon && needDau) return Math.random() < 0.5 ? 'son' : 'daughter';
+  if (needSon) return 'son';
+  if (needDau) return 'daughter';
+  return null;
+}
 export function houseOf(S, nid) { return S.nations[nid]?.dyn?.house || '—'; }
 
 /** ضرایب حکومتی پادشاه کنونی — با cabinetMods جمع می‌شود. */
@@ -250,11 +300,11 @@ export function initDynasty(S) {
     queen.spouseId = king.id; king.spouseId = queen.id;
     S.royals.push(queen);
 
-    // --- فرزندان ---
-    const nKids = 1 + Math.floor(rng() * 3);
-    for (let k = 0; k < nKids; k++) {
+    // --- فرزندان: دقیقاً یک پسر و یک دختر (سقف دودمان حاکم) ---
+    const roles = shuffled(rng, [true, false]); // ترتیب تولد تصادفی، ترکیب ثابت
+    for (let k = 0; k < roles.length; k++) {
       const kid = makeRoyal(S, {
-        rng, father: king.male ? king : queen, mother: king.male ? queen : king,
+        rng, male: roles[k], father: king.male ? king : queen, mother: king.male ? queen : king,
         age: Math.max(0, king.age - 24 - Math.floor(rng() * 6) + k * 3),
         house: hn, nation: n.id,
       });
@@ -337,6 +387,15 @@ export function crown(S, nid, newKing, reason) {
   n.dyn.rulerId = newKing.id;
   newKing.reignStart = S.week;
   newKing.nation = nid;
+  // هرکه تاج بر سر گذاشت دیگر نجیب‌زاده نیست بلکه پادشاه است.
+  if (newKing.isNoble) {
+    newKing.isNoble = false;
+    // خاندان بزرگ ممکن است با ۲-۳ فرزند وارد دودمان شود. سقف «یک پسر و
+    // یک دختر» باید اینجا هم برقرار بماند، ولی کسی حذف نمی‌شود: فرزندان
+    // اضافه به خویشاوند (نه فرزند) تبدیل می‌شوند تا نه شجره خراب شود و
+    // نه استخر نامزدهای شورا خالی. بزرگ‌ترینِ هر جنس فرزند می‌ماند.
+    trimToQuota(S, newKing);
+  }
   if (!newKing.title) newKing.title = newKing.male ? 'شاه' : 'ملکه';
   n.ruler = `${newKing.title} ${newKing.name}`;
   n.dyn.house = newKing.house || n.dyn.house;
@@ -495,9 +554,11 @@ export function simDynasty(S) {
     // ---- تولد فرزند ----
     const sp = k.spouseId ? royalById(S, k.spouseId) : null;
     const fertile = (sp && sp.alive && sp.age < 45 && k.age < 60) || (k.spouseForeign && k.age < 60);
-    if (fertile && Math.random() < R('childBirth') * (childrenOf(S, k).length > 4 ? 0.35 : 1)) {
+    // سهمیه‌ی فرزند (یک پسر و یک دختر، مادام‌العمر) پیش از هر بخت‌آزمایی
+    const wantRole = fertile ? nextRoyalChildRole(S, k, sp) : null;
+    if (wantRole && Math.random() < R('childBirth')) {
       const rng = Math.random;
-      const kid = makeRoyal(S, { rng, father: k.male ? k : sp, mother: k.male ? sp : k, age: 0, house: d.house, nation: n.id });
+      const kid = makeRoyal(S, { rng, male: wantRole === 'son', father: k.male ? k : sp, mother: k.male ? sp : k, age: 0, house: d.house, nation: n.id });
       S.royals.push(kid);
       k.childrenIds.push(kid.id);
       if (sp) sp.childrenIds.push(kid.id);
@@ -555,7 +616,7 @@ function doSuccession(S, n) {
     const head = strongest ? royalById(S, strongest.headId) : null;
     if (head?.alive) {
       d.house = head.house;
-      head.isNoble = false;
+      // crown() خودش نجیب‌زادگی را پاک و پرچم سهمیه را ست می‌کند.
       crown(S, n.id, head, 'تاج به خاندان دیگری رسید');
       n.legitimacy = clamp((n.legitimacy ?? 60) - 22, 0, 100);
       n.stability = clamp((n.stability ?? 50) - 14, 0, 100);
