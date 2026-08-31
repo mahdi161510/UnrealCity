@@ -530,3 +530,260 @@ button { font-family: inherit; cursor: pointer; }
 .ev-timer { margin: 2px 0 10px; display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .ev-timer-bar { width: 100%; height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--gold2), #7a5c12); animation: evtimer 20s linear forwards; }
 @keyframes evtimer { from { width: 100%; } to { width: 0%; } }
+
+/* ================================================================
+   ===== سامانه‌های تازه: دربار، ناوگان، اطلاعات، جامعه، تجارت =====
+   ================================================================ */
+
+/* --- کابینه --- */
+.cab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cab-slot {
+  background: linear-gradient(180deg, rgba(255,240,200,.05), rgba(255,240,200,.02));
+  border: 1px solid rgba(80,66,40,.5); border-radius: 10px; padding: 8px 9px;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color .15s, transform .12s;
+}
+.cab-slot:hover { border-color: rgba(217,177,102,.55); transform: translateY(-1px); }
+.cab-slot.empty { border-style: dashed; opacity: .78; }
+.cab-role { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.cab-role b { color: var(--gold2); }
+.cab-ic { font-size: 16px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.cab-person { font-size: 11.5px; display: flex; flex-direction: column; gap: 3px; }
+.cab-nm { font-weight: 700; }
+.cab-slot .bar { height: 5px; }
+.cab-slot .row-btns { margin: 2px 0 0; }
+.cab-slot .pv-tags { margin: 0; }
+
+/* --- ردیف شخصیت --- */
+.chr-row {
+  display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+  transition: border-color .12s, background .12s;
+}
+.chr-row:hover { border-color: rgba(217,177,102,.5); background: rgba(255,240,200,.06); }
+.chr-row.on-duty { border-right: 3px solid var(--good); }
+.chr-av { font-size: 20px; line-height: 1.3; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+.chr-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.chr-mid .bar { height: 5px; }
+.chr-row .dip-btns { display: flex; flex-wrap: wrap; gap: 3px; max-width: 132px; justify-content: flex-end; }
+.chr-row .dip-btns .mini-btn { padding: 2px 6px; font-size: 12px; }
+
+/* --- ناوگان --- */
+.fleet {
+  background: linear-gradient(180deg, rgba(60,90,120,.10), rgba(255,240,200,.03));
+  border: 1px solid rgba(80,66,40,.45); border-radius: 11px; padding: 8px 10px; margin-bottom: 6px;
+  display: flex; flex-direction: column; gap: 5px; transition: border-color .12s;
+}
+.fleet:hover { border-color: rgba(217,177,102,.5); }
+.fleet.sel { border-color: var(--gold2); box-shadow: 0 0 12px rgba(217,177,102,.22); }
+.fl-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12.5px; }
+.fl-head .flag { width: 26px; height: 17px; }
+.fl-ships { display: flex; flex-wrap: wrap; gap: 3px; }
+.fleet .bar { height: 5px; }
+.dock-prov {
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42);
+  border-radius: 10px; padding: 8px 10px; margin-bottom: 6px;
+}
+.ship-buy { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.ship-buy .plus { font-size: 15px; padding: 4px 7px; flex-direction: column; gap: 1px; }
+.ship-buy .plus .cost { font-size: 8.5px; }
+.zone-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 4px 8px; border-radius: 7px; font-size: 11.5px;
+}
+.zone-row:nth-child(odd) { background: rgba(60,90,120,.10); }
+
+/* --- جاسوسی --- */
+.op-row, .route-row {
+  display: flex; gap: 9px; align-items: center; padding: 6px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+}
+.op-ic { font-size: 18px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.spy-target {
+  background: linear-gradient(180deg, rgba(40,30,50,.30), rgba(255,240,200,.02));
+  border: 1px solid rgba(80,66,40,.45); border-radius: 11px; padding: 9px 10px; margin-bottom: 7px;
+}
+.op-buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.op-buttons .mini-btn { font-size: 10.5px; padding: 3px 7px; }
+.mini-btn.dis-op { opacity: .35; }
+.intel-box {
+  background: rgba(143,188,106,.08); border: 1px dashed rgba(143,188,106,.4);
+  border-radius: 8px; padding: 6px 9px; margin: 5px 0;
+}
+.intel-box .kv { gap: 10px; margin: 3px 0 0; }
+.kv.small > div { font-size: 11px; }
+
+/* --- جامعه --- */
+.mov-row {
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42);
+  border-right: 3px solid transparent; border-radius: 10px; padding: 8px 10px; margin-bottom: 6px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.mov-row.mid { border-right-color: var(--mid); }
+.mov-row.bad { border-right-color: var(--bad); background: rgba(208,90,74,.07); }
+.civil-war {
+  background: linear-gradient(180deg, rgba(110,42,32,.5), rgba(76,29,21,.4));
+  border: 1px solid #a04a38; border-radius: 10px; padding: 10px 12px; margin: 8px 0;
+  font-size: 12.5px; line-height: 1.8;
+  animation: cwpulse 2.4s ease-in-out infinite;
+}
+.civil-war.warn { background: rgba(217,164,65,.12); border-color: var(--mid); animation: none; }
+@keyframes cwpulse { 50% { box-shadow: 0 0 18px rgba(208,90,74,.35); } }
+
+/* --- تجارت --- */
+.tax-row { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.tax-btn {
+  flex: 1 1 84px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: rgba(255,240,200,.04); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 9px; padding: 6px 4px; font-size: 16px; transition: border-color .12s, background .12s;
+}
+.tax-btn span { font-size: 9.5px; color: var(--ink-dim); }
+.tax-btn:hover { border-color: var(--gold); }
+.tax-btn.on { border-color: var(--gold2); background: rgba(217,177,102,.15); }
+.tax-btn.on span { color: #ffeec4; }
+.comp-row {
+  display: flex; gap: 9px; align-items: center; padding: 7px 9px; margin-bottom: 5px;
+  background: rgba(255,240,200,.035); border: 1px solid rgba(80,66,40,.42); border-radius: 10px;
+}
+.comp-row.owned { border-color: rgba(217,177,102,.55); background: rgba(217,177,102,.09); }
+.new-route { display: flex; gap: 5px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.sel-in {
+  background: #241e14; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 8px; font-size: 11.5px; font-family: inherit; flex: 1 1 120px;
+}
+.sel-in:focus { border-color: var(--gold); outline: none; }
+
+/* ================================================================
+   ===== لایه‌ی جلای طلا و مرمر: عمق، بافت و درخشش سینمایی =====
+   ================================================================ */
+:root {
+  --gold-leaf: linear-gradient(160deg, #fff3cf 0%, #e8c766 26%, #a8842f 52%, #f2dfa4 74%, #8d6c25 100%);
+  --marble: 
+    radial-gradient(120% 80% at 20% 0%, rgba(255,246,224,.055), transparent 62%),
+    radial-gradient(90% 70% at 85% 100%, rgba(150,190,225,.035), transparent 60%);
+  --edge-hi: inset 0 1px 0 rgba(255,244,214,.11);
+  --edge-lo: inset 0 -1px 0 rgba(0,0,0,.42);
+}
+
+/* --- رگه‌های مرمر روی پس‌زمینه‌ی پنل‌ها --- */
+#panel-wrap::before, .modal-box::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  border-radius: inherit; opacity: .55;
+  background: var(--marble),
+    repeating-linear-gradient(122deg, transparent 0 38px, rgba(255,240,205,.016) 38px 39px, transparent 39px 84px),
+    repeating-linear-gradient(64deg,  transparent 0 57px, rgba(190,215,240,.012) 57px 58px, transparent 58px 121px);
+}
+#panel-wrap > *, .modal-box > * { position: relative; z-index: 1; }
+
+/* --- نوار بالا: شیشه‌ی دودی با لبه‌ی طلا --- */
+#topbar {
+  backdrop-filter: blur(14px) saturate(1.15);
+  box-shadow: 0 6px 26px rgba(0,0,0,.5), var(--edge-hi);
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, rgba(217,177,102,.55), rgba(232,199,102,.85), rgba(217,177,102,.55), transparent) 1;
+}
+#topbar .stat {
+  transition: color .15s, text-shadow .15s, transform .12s;
+}
+#topbar .stat:hover { color: #ffeec4; text-shadow: 0 0 12px rgba(232,199,102,.45); transform: translateY(-1px); }
+
+/* --- داک: دکمه‌های برجسته با درخشش طلایی --- */
+#dock { backdrop-filter: blur(12px) saturate(1.1); }
+.dock-btn {
+  position: relative; overflow: hidden;
+  box-shadow: var(--edge-hi), var(--edge-lo), 0 3px 10px rgba(0,0,0,.35);
+  transition: transform .14s cubic-bezier(.34,1.56,.64,1), box-shadow .16s, background .16s;
+}
+.dock-btn::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,246,220,.14), transparent 46%);
+}
+.dock-btn:hover { transform: translateY(-3px) scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,.5), 0 0 18px rgba(217,177,102,.3), var(--edge-hi); }
+.dock-btn.on {
+  background: linear-gradient(180deg, rgba(232,199,102,.24), rgba(140,105,40,.16));
+  box-shadow: 0 0 0 1px var(--gold2), 0 0 22px rgba(232,199,102,.35), var(--edge-hi);
+}
+.dock-btn.on::before {
+  content: ''; position: absolute; bottom: 0; left: 22%; right: 22%; height: 2px;
+  background: var(--gold2); box-shadow: 0 0 10px var(--gold2); border-radius: 2px 2px 0 0;
+}
+
+/* --- سرتیتر بخش‌ها: خط طلایی محو‌شونده --- */
+.sec > h4, .sec-title {
+  position: relative; padding-bottom: 5px;
+}
+.sec > h4::after, .sec-title::after {
+  content: ''; position: absolute; bottom: 0; right: 0; width: 100%; height: 1px;
+  background: linear-gradient(270deg, rgba(217,177,102,.65), rgba(217,177,102,.14) 45%, transparent 80%);
+}
+
+/* --- نوارها: درخشش داخلی + انیمیشن پرشدن --- */
+.bar { position: relative; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
+.bar > i, .bar > span, .bar > div {
+  transition: width .45s cubic-bezier(.22,.9,.3,1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+}
+.bar::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.16), transparent 55%);
+}
+
+/* --- دکمه‌های اصلی: طلای برجسته --- */
+.btn.primary, .mbtn.primary {
+  background: var(--gold-leaf); color: #2a2013; border-color: #f0dca8; font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255,255,255,.35);
+  box-shadow: 0 4px 16px rgba(217,177,102,.28), inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 4px rgba(120,90,30,.35);
+}
+.btn.primary:hover, .mbtn.primary:hover { filter: brightness(1.08); box-shadow: 0 6px 24px rgba(232,199,102,.42), inset 0 1px 0 rgba(255,255,255,.6); }
+
+/* --- کارت‌ها: بالا آمدن نرم --- */
+.nation-card, .tl-card, .q-item, .bld, .tech, .army, .rank {
+  transition: transform .14s cubic-bezier(.34,1.4,.64,1), border-color .14s, box-shadow .14s, background .14s;
+}
+.nation-card:hover, .tl-card:hover, .bld:hover, .tech:hover, .army:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0,0,0,.42), 0 0 0 1px rgba(217,177,102,.28);
+}
+
+/* --- برچسب‌ها --- */
+.tag { box-shadow: var(--edge-hi); letter-spacing: .2px; }
+
+/* --- مودال: قاب طلایی و ورود سینمایی --- */
+.modal-box {
+  position: relative;
+  box-shadow: 0 24px 80px rgba(0,0,0,.75), 0 0 0 1px rgba(217,177,102,.30), var(--edge-hi);
+  animation: modalIn .28s cubic-bezier(.2,.9,.25,1);
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(.975); } }
+.modal-box::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  padding: 1px; background: linear-gradient(150deg, rgba(255,243,207,.5), rgba(168,132,47,.12) 40%, rgba(242,223,164,.35));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+
+/* --- نوار مُدهای نقشه --- */
+#mapmodes {
+  backdrop-filter: blur(10px);
+  flex-wrap: wrap; justify-content: center; max-width: min(78vw, 860px);
+  background: rgba(16,13,9,.55); padding: 5px 7px; border-radius: 12px;
+  border: 1px solid rgba(217,177,102,.18);
+}
+#mapmodes .mm-btn { padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+.mm-btn { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
+.mm-btn:hover { box-shadow: 0 0 12px rgba(217,177,102,.22); }
+.mm-btn.on { box-shadow: 0 0 0 1px var(--gold2), 0 0 14px rgba(232,199,102,.28); }
+
+/* --- مینی‌مپ: قاب طلایی --- */
+#minimap {
+  box-shadow: 0 10px 30px rgba(0,0,0,.6), 0 0 0 1px rgba(217,177,102,.35), var(--edge-hi);
+  border-radius: 10px;
+}
+
+/* --- توست‌ها --- */
+.toast { box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 0 0 1px rgba(217,177,102,.2), var(--edge-hi); backdrop-filter: blur(10px); }
+
+/* --- دسترس‌پذیری: احترام به کاهش حرکت --- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

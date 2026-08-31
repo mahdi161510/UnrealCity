@@ -4,8 +4,13 @@ import { genRealMap } from './worldmap.js';
 import { NATION_DEFS, GOODS, BUILDINGS, FAMILY_PORTRAITS, DAUGHTER_NAMES, SON_NAMES } from './data.js';
 import { timelineById, difficultyById, OTHER_NATION } from './timelines.js';
 import { mulberry32, clamp, pick } from './utils.js';
+import { initCharacters, charsOf, resetCharUid } from './characters.js';
+import { initNavy } from './naval.js';
+import { initEspionage } from './espionage.js';
+import { initSociety } from './society.js';
+import { initTrade } from './trade.js';
 
-export const SAVE_KEY = 'unrealcity1836_save_v3';
+export const SAVE_KEY = 'unrealcity1836_save_v4';
 
 // قوانین آغازین هر خط زمانی (با توجه به روح دوره)
 function defaultLaws(tlId, pers, rng) {
@@ -146,6 +151,10 @@ export function newGame(seed, opts) {
     armies: [], nextArmyId: 1,
     wars: [], nextWarId: 1,
     battles: [], nextBattleId: 1,
+    // --- سامانه‌های تازه ---
+    chars: [], nextOpId: 1,
+    fleets: [], nextFleetId: 1, seaZones: [],
+    navalBattles: [],
     fx: [],
     log: [],
     pendingEvent: null,
@@ -165,6 +174,13 @@ export function newGame(seed, opts) {
     state.goods[g] = { price: GOODS[g].base * (0.9 + rng() * 0.2), s: 0, d: 0, hist: [] };
   }
   for (const n of nations) { state.stats.gdp[n.id] = []; state.stats.sol[n.id] = []; }
+
+  // ---- سامانه‌های تازه: شخصیت‌ها، جامعه، تجارت، جاسوسی، نیروی دریایی ----
+  initCharacters(state);
+  initSociety(state);
+  initTrade(state);
+  initEspionage(state);
+  initNavy(state);
 
   // سناریوی «عصر ماشین»: پژوهش آغازین
   if (scMods.researchStart) state.nations[playerIdx].res = { key: null, pts: scMods.researchStart };
@@ -205,11 +221,21 @@ export function saveGame(state) {
       boom: n.boom, strike: n.strike, capital: n.capital, revoltCd: n.revoltCd, dowCd: n.dowCd,
       literacy: n.literacy, missionsDone: n.missionsDone, annexed: n.annexed, electionCd: n.electionCd,
       warExh: n.warExh, personality: n.personality, persMods: n.persMods,
+      // سامانه‌های تازه
+      cabinet: n.cabinet, candidates: n.candidates,
+      spyNet: n.spyNet, ops: n.ops, intel: n.intel, grudge: n.grudge, counterBoost: n.counterBoost,
+      culture: n.culture, religion: n.religion, stability: n.stability, legitimacy: n.legitimacy,
+      movements: n.movements, civilWar: n.civilWar, civilWarCd: n.civilWarCd, lostProvs: n.lostProvs,
+      tariff: n.tariff, routes: n.routes, companies: n.companies, colonies: n.colonies,
     })),
     provs: state.map.provs.map(p => ({
       owner: p.owner, controller: p.controller, pops: p.pops, bld: p.bld, queue: p.queue,
       unrest: p.unrest, sol: p.sol, devast: p.devast,
+      culture: p.culture, religion: p.religion, assim: p.assim, sepPressure: p.sepPressure,
+      navyQueue: p.navyQueue, blockaded: p.blockaded,
     })),
+    chars: state.chars, nextOpId: state.nextOpId,
+    fleets: state.fleets, nextFleetId: state.nextFleetId,
     goods: Object.fromEntries(Object.entries(state.goods).map(([k, g]) => [k, { price: g.price, hist: g.hist.slice(-80) }])),
     armies: state.armies.map(a => ({ id: a.id, n: a.n, prov: a.prov, home: a.home, size: a.size, org: a.org, mor: a.mor, path: a.path, status: a.status, rebel: a.rebel, prog: a.prog, gen: a.gen, dig: a.dig })),
     nextArmyId: state.nextArmyId,
@@ -254,6 +280,24 @@ export function loadGame() {
   if (dyn.family) { state.family = dyn.family; state.nextFamId = dyn.nextFamId || state.nextFamId; }
   if (dyn.phase) state.phase = dyn.phase;
   if (dyn.prologue) state.prologue = dyn.prologue;
+  // ---- بازیابی سامانه‌های تازه ----
+  if (dyn.chars?.length) {
+    state.chars = dyn.chars;
+    state.nextOpId = dyn.nextOpId || 1;
+    let mx = 0; for (const c of state.chars) mx = Math.max(mx, c.id);
+    resetCharUid(mx + 1);
+  }
+  if (dyn.fleets) { state.fleets = dyn.fleets; state.nextFleetId = dyn.nextFleetId || 1; }
+  // مقادیر پیش‌فرض برای ذخیره‌های ناقص
+  for (const n of state.nations) {
+    n.cabinet = n.cabinet || {}; n.candidates = n.candidates || [];
+    n.spyNet = n.spyNet || {}; n.ops = n.ops || []; n.intel = n.intel || {}; n.grudge = n.grudge || {};
+    n.movements = n.movements || {}; n.routes = n.routes || []; n.companies = n.companies || [];
+    n.colonies = n.colonies || [];
+    if (n.tariff === undefined) n.tariff = 2;
+    if (n.stability === undefined) n.stability = 50;
+    if (n.legitimacy === undefined) n.legitimacy = 60;
+  }
   state.battles = []; state.fx = []; state.pendingEvent = null; state.eventCd = 8;
   return state;
 }

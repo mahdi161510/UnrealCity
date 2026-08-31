@@ -5,9 +5,16 @@ import { TIMELINES, DIFFICULTIES, timelineById } from './timelines.js';
 import * as SIM from './sim.js';
 import { newGame, saveGame, loadGame, hasSave, clearSave, addLog } from './state.js';
 import { REBEL } from './sim.js';
+import { panelCourt, panelNavy, panelSpy, panelSociety, panelTrade } from './panels2.js';
+import { SEASONS, seasonOfWeek } from './render.js';
+import { appointMinister, dismissMinister, charById, charsOf, CABINET } from './characters.js';
+import { startShip, cancelShip, orderFleet, setBlockade, loadArmy, unloadArmy, fleetsOf, totalShips, zoneOf, SHIP_CLASSES as SHIP_CLASSES2 } from './naval.js';
+import { startOp, abortOp } from './espionage.js';
+import { suppressMovement, appeaseMovement, culturalProgram } from './society.js';
+import { foundCompany, openRoute, closeRoute, setTariff, startColony, abandonColony } from './trade.js';
 
 export const UI = {
-  selProv: -1, selArmy: null, hoverProv: -1,
+  selProv: -1, selArmy: null, hoverProv: -1, selFleet: null, hoverZone: -1,
   panel: null, mapMode: 'political',
 };
 let S = null, R = null, A = null, hooks = null;
@@ -193,6 +200,8 @@ function buildMapModeBar() {
   const modes = [
     ['political', '🗺️ سیاسی'], ['terrain', '⛰️ زمین'], ['population', '👥 جمعیت'],
     ['production', '🏭 تولید'], ['unrest', '🔥 ناآرامی'],
+    ['culture', '🌍 فرهنگ'], ['religion', '🕌 مذهب'],
+    ['naval', '⚓ دریایی'], ['separatism', '🏴 جدایی‌طلبی'], ['devast', '💥 ویرانی'],
   ];
   const bar = document.getElementById('mapmodes');
   bar.innerHTML = '';
@@ -224,6 +233,28 @@ export function refreshTopbar() {
   const b = document.getElementById('tb-army');
   b.innerHTML = `🪖 ${fd(Math.round(SIM.armiesOf(S, pn.id).reduce((a, x) => a + x.size, 0)))} + ${fd(Math.max(0, Math.floor(pn.battalions - SIM.armiesOf(S, pn.id).reduce((a, x) => a + x.size, 0))))}`;
   document.getElementById('tb-date').textContent = fDate(S.week);
+  // فصل جاری
+  const seEl = document.getElementById('tb-season');
+  if (seEl) {
+    const se = SEASONS[seasonOfWeek(S.week)];
+    seEl.innerHTML = `${se.icon} ${se.name}`;
+    seEl.title = 'فصل جاری — زمین، آب‌وهوا و حال‌وهوای نقشه با فصل عوض می‌شود';
+  }
+  // ثبات و مشروعیت
+  const stEl = document.getElementById('tb-stab');
+  if (stEl) {
+    const st = Math.round(pn.stability ?? 50), lg = Math.round(pn.legitimacy ?? 60);
+    stEl.innerHTML = `🏛️ ${fd(st)} / 👑 ${fd(lg)}`;
+    stEl.className = 'stat' + (st < 25 ? ' neg' : st > 70 ? ' pos' : '');
+    stEl.title = `ثبات ${st}٪ و مشروعیت ${lg}٪ — اگر هر دو خیلی پایین بروند، جنگ داخلی می‌شود`;
+  }
+  // توان دریایی
+  const nvEl = document.getElementById('tb-navy');
+  if (nvEl) {
+    const ns = Math.round(SIM.navalStrengthOf(S, pn.id));
+    nvEl.innerHTML = `⚓ ${fd(ns)}`;
+    nvEl.title = 'توان ناوگان — برای محاصره، پیاده‌کردن سرباز و حفظ تجارت';
+  }
   const eraEl = document.getElementById('tb-era');
   if (eraEl) { eraEl.textContent = `${ERAS[S.era || 0].name}${S.phase === 'prologue' ? ' — دوران شاهزادی' : ''}`; eraEl.title = 'عصر کنونی؛ فناوری‌ها و قابلیت‌های تازه با پیشروی زمان گشایش می‌یابند'; }
   const noSpeed = !!(S.diffMods && S.diffMods.noSpeed);
@@ -298,7 +329,14 @@ export function renderPanel() {
   const body = document.getElementById('panel-body');
   const scroll = body.scrollTop;
   const head = document.getElementById('panel-title');
-  const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions, family: panelFamily }[UI.panel];
+  const P2 = {
+    court:   () => panelCourt(S, UI, R),
+    navy:    () => panelNavy(S, UI, R),
+    spy:     () => panelSpy(S, UI, R),
+    society: () => panelSociety(S, UI, R),
+    trade:   () => panelTrade(S, UI, R),
+  };
+  const fn = { province: panelProvince, market: panelMarket, tech: panelTech, politics: panelPolitics, diplomacy: panelDiplomacy, military: panelMilitary, ranking: panelRanking, log: panelLog, country: panelCountry, missions: panelMissions, family: panelFamily, ...P2 }[UI.panel];
   if (!fn) return;
   const res = fn();
   head.textContent = res.title;
@@ -1001,6 +1039,119 @@ function doAction(act, b) {
       break;
     }
     case 'talk': { showChat(+b.dataset.id); return; }
+
+    // ---------- دربار و کابینه ----------
+    case 'hire-min': {
+      const r = appointMinister(S, pn, b.dataset.role, +b.dataset.id);
+      toast(r.ok ? '🎩' : '⚠️', r.ok ? `به سِمت ${CABINET[b.dataset.role].name} منصوب شد (${fMoney(r.cost)})` : r.why);
+      if (r.ok) Audio2.coin();
+      break;
+    }
+    case 'fire-min': {
+      const role = b.dataset.role;
+      confirmBox('برکناری وزیر', `آیا ${CABINET[role].name} را برکنار می‌کنید؟ وفاداری‌اش به‌شدت می‌شکند.`, () => {
+        const r = dismissMinister(S, pn, role);
+        toast(r.ok ? '📜' : '⚠️', r.ok ? `${r.name} برکنار شد` : r.why);
+        renderPanel(); refreshTopbar();
+      });
+      return;
+    }
+    case 'open-hire': { toast('📋', 'از فهرست «نامزدهای در دسترس» پایین همین پنل انتخاب کنید'); break; }
+
+    // ---------- نیروی دریایی ----------
+    case 'build-ship': {
+      const p2 = S.map.provs[+b.dataset.p];
+      const r = startShip(S, p2, b.dataset.k);
+      toast(r.ok ? '⚓' : '⚠️', r.ok ? `ساخت ${SHIP_CLASSES2[b.dataset.k].name} در ${p2.name} آغاز شد` : r.why);
+      if (r.ok) Audio2.coin();
+      break;
+    }
+    case 'cancel-ship': { cancelShip(S, S.map.provs[+b.dataset.p], +b.dataset.i); break; }
+    case 'sel-fleet': {
+      UI.selFleet = +b.dataset.id; UI.selArmy = null;
+      toast('🎯', 'ناوگان برگزیده شد — روی دریا کلیک کنید تا حرکت کند، یا روی بندر دشمن برای محاصره');
+      break;
+    }
+    case 'desel-fleet': UI.selFleet = null; break;
+    case 'assign-adm': {
+      const f = S.fleets.find(x => x.id === +b.dataset.id);
+      const adm = charsOf(S, pn.id, 'admiral').find(c => c.assigned === null && !c.post);
+      if (!f) break;
+      if (!adm) { toast('⚠️', 'دریاسالار آزادی ندارید'); break; }
+      f.admId = adm.id; adm.assigned = f.id;
+      toast('👤', `${adm.name} فرماندهی ناوگان را بر عهده گرفت`);
+      break;
+    }
+    case 'load-army': {
+      const f = S.fleets.find(x => x.id === +b.dataset.id);
+      if (!f) break;
+      const army = S.armies.find(a => a.n === pn.id && a.status === 'idle' && S.map.provs[a.prov].seaZone === f.zone && S.map.provs[a.prov].coast);
+      if (!army) { toast('⚠️', 'ارتشی در بندرهای این منطقه آماده نیست'); break; }
+      const r = loadArmy(S, f, army);
+      toast(r.ok ? '🪖' : '⚠️', r.ok ? 'سربازان سوار شدند' : r.why);
+      break;
+    }
+    case 'unload': {
+      const f = S.fleets.find(x => x.id === +b.dataset.id);
+      if (!f) break;
+      const z = zoneOf(S, f.zone);
+      const port = (z?.ports || []).map(id => S.map.provs[id])
+        .find(p2 => p2.owner === pn.id || p2.controller === pn.id) || (z?.ports || []).map(id => S.map.provs[id])[0];
+      if (!port) { toast('⚠️', 'بندری برای پیاده‌شدن نیست'); break; }
+      const r = unloadArmy(S, f, port.id);
+      toast(r.ok ? '🪖' : '⚠️', r.ok ? `سربازان در ${port.name} پیاده شدند` : r.why);
+      if (r.ok) Audio2.drum();
+      break;
+    }
+
+    // ---------- جاسوسی ----------
+    case 'start-op': {
+      const r = startOp(S, pn, b.dataset.k, +b.dataset.n, null);
+      toast(r.ok ? '🕵️' : '⚠️', r.ok ? 'عملیات آغاز شد — نتیجه در چند هفته' : r.why);
+      break;
+    }
+    case 'abort-op': { abortOp(S, pn, +b.dataset.id); toast('🚫', 'عملیات لغو شد'); break; }
+
+    // ---------- جامعه ----------
+    case 'suppress': {
+      const r = suppressMovement(S, pn, b.dataset.k);
+      toast(r.ok ? '🔨' : '⚠️', r.ok ? 'جنبش سرکوب شد — اما تندروتر شدند' : r.why);
+      break;
+    }
+    case 'appease': {
+      const r = appeaseMovement(S, pn, b.dataset.k);
+      toast(r.ok ? '🕊️' : '⚠️', r.ok ? 'با جنبش مصالحه شد' : r.why);
+      break;
+    }
+    case 'cult-prog': {
+      const r = culturalProgram(S, pn, +b.dataset.p);
+      toast(r.ok ? '📚' : '⚠️', r.ok ? 'برنامه‌ی فرهنگی اجرا شد' : r.why);
+      break;
+    }
+    case 'goto-prov': { selectProv(+b.dataset.p); return; }
+
+    // ---------- تجارت ----------
+    case 'tariff': { setTariff(S, pn, +b.dataset.i); break; }
+    case 'open-route': {
+      const nSel = document.getElementById('route-nation'), gSel = document.getElementById('route-good');
+      if (!nSel || !gSel) break;
+      const r = openRoute(S, pn, +nSel.value, gSel.value);
+      toast(r.ok ? '🛣️' : '⚠️', r.ok ? `مسیر ${r.dir === 'export' ? 'صادراتی' : 'وارداتی'} گشوده شد` : r.why);
+      break;
+    }
+    case 'close-route': { closeRoute(S, pn, +b.dataset.i); break; }
+    case 'found-co': {
+      const r = foundCompany(S, pn, b.dataset.k);
+      toast(r.ok ? '🏢' : '⚠️', r.ok ? 'شرکت تأسیس شد' : r.why);
+      if (r.ok) Audio2.coin();
+      break;
+    }
+    case 'colonize': {
+      const r = startColony(S, pn, +b.dataset.p);
+      toast(r.ok ? '🏴' : '⚠️', r.ok ? 'مأموریت استعماری آغاز شد' : r.why);
+      break;
+    }
+    case 'abandon-col': { abandonColony(S, pn, +b.dataset.p); toast('🏳️', 'مأموریت رها شد'); break; }
   }
   renderPanel();
   refreshTopbar();
@@ -1030,6 +1181,34 @@ export function mapClick(sx, sy, shift) {
     return;
   }
   const pid = R.pickProv(S, sx, sy);
+
+  // ---- فرمان به ناوگان برگزیده ----
+  if (UI.selFleet !== null && UI.selFleet !== undefined) {
+    const f = S.fleets.find(x => x.id === UI.selFleet);
+    if (f && f.status !== 'battle') {
+      if (pid >= 0) {
+        // کلیک روی بندر دشمن ⇒ محاصره
+        const p2 = S.map.provs[pid];
+        const r = setBlockade(S, f, pid);
+        if (r.ok) { toast('🚫', `محاصره‌ی بندر ${p2.name} آغاز شد`); Audio2.drum(); }
+        else toast('⚠️', r.why);
+      } else {
+        // کلیک روی دریا ⇒ حرکت به آن منطقه
+        const w = R.toWorld(sx, sy);
+        let best = null, bd = 1e18;
+        for (const z of S.seaZones || []) { const d = Math.hypot(w.x - z.cx, w.y - z.cy); if (d < bd) { bd = d; best = z; } }
+        if (best) {
+          const ok = orderFleet(S, f, best.id);
+          toast(ok ? '🌊' : '⚠️', ok ? `ناوگان به‌سوی ${best.name}` : 'مسیر دریایی یافت نشد');
+          if (ok) Audio2.click();
+        }
+      }
+      if (UI.panel === 'navy') renderPanel();
+      return;
+    }
+    UI.selFleet = null;
+  }
+
   if (pid < 0) return;
   if (UI.selArmy) {
     const a = S.armies.find(x => x.id === UI.selArmy);
@@ -1230,6 +1409,16 @@ export function showHelp(inGame) {
       <li>⚔️ <b>جنگ:</b> پادگان بسازید، ارتش بسازید و با کلیک روی نقشه فرمان دهید.</li>
       <li>👑 <b>هدف:</b> تا سال ${fd(endYear)} بزرگ‌ترین قدرت جهان شوید (بیشترین اعتبار).</li>
     </ul>
+    <h3>سامانه‌های ژرف</h3>
+    <ul>
+      <li>🎩 <b>دربار و فرماندهان:</b> هشت پست کابینه را از میان نامزدها پر کنید؛ هر وزیر بر بخشی از کشور اثر می‌گذارد. ژنرال‌ها ویژگی و تجربه دارند، در نبرد رشد می‌کنند، زخم می‌خورند و گاه می‌میرند. به وفاداری‌شان چشم داشته باشید.</li>
+      <li>⚓ <b>نیروی دریایی:</b> در بندرها ناو بسازید (از ناوچه تا ناوشکار و زیردریایی)، ناوگان را روی مناطق دریایی بچرخانید، بندر دشمن را محاصره کنید و با ناو ترابری، ارتش را به ساحل دشمن پیاده کنید. ناوگان برگزیده را با کلیک روی دریا حرکت دهید.</li>
+      <li>🕵️ <b>سازمان اطلاعات:</b> نخست در کشور هدف «شبکه» بسازید، سپس دزدی فناوری، خرابکاری، تحریک شورش، رشوه، ترور یا کودتا را کلید بزنید. هر عملیات ریسک لو رفتن دارد و روابط را می‌سوزاند.</li>
+      <li>🌍 <b>جامعه:</b> فرهنگ و مذهب استان‌ها با کشور شما فرق می‌کند؛ اقلیت‌های ناراضی فشار جدایی‌طلبی می‌سازند. شش جنبش سیاسی قدرت می‌گیرند — سرکوب یا مصالحه کنید. اگر <b>ثبات</b> و <b>مشروعیت</b> هر دو سقوط کنند، جنگ داخلی می‌شود.</li>
+      <li>🛣️ <b>تجارت و مستعمرات:</b> تعرفه بگذارید، مسیرهای صادرات/واردات با کشورهای دیگر بگشایید، شرکت‌های بزرگ تأسیس کنید و سرزمین‌های بی‌صاحب را مستعمره کنید. محاصره‌ی دریایی تجارت‌تان را می‌خشکاند.</li>
+    </ul>
+    <h3>مُدهای نقشه</h3>
+    <p class="dim">جز سیاسی/زمین/جمعیت/تولید/ناآرامی، اکنون <b>فرهنگ</b>، <b>مذهب</b>، <b>دریایی</b>، <b>جدایی‌طلبی</b> و <b>ویرانی</b> هم دارید. نقشه فصل‌ها را نشان می‌دهد (برف زمستان، طلای پاییز) و شب‌ها چراغ شهرها روشن می‌شود.</p>
     <h3>کلیدها</h3>
     <ul>
       <li><b>Space</b> مکث/ادامه — <b>1 تا 4</b> سرعت${noSpeed ? ' <span class="neg">(در «افسانه‌ای» فقط پاز/آن‌پاز فعال است)</span>' : ''}</li>
@@ -1303,6 +1492,39 @@ const TUTORIAL_PAGES = [
     'دربار سلطنتی (فقط خط ویکتوریا): اعضای خانواده رابطه و خواسته‌های خود را دارند؛ با آن‌ها گفتگو کنید و مشورت بگیرید.',
     'مأموریت‌ها (🎯) راهنمای پیشرفت‌اند و پاداش می‌دهند.',
     'رتبه‌بندی (👑) جایگاه جهانی شما را نشان می‌دهد و تاریخچه (📜) رویدادهای گذشته را ثبت می‌کند.',
+  ] },
+  { icon: '🎩', title: 'کابینه و فرماندهان', items: [
+    'پنل «دربار و فرماندهان» (🎩) هشت پست کابینه دارد: صدراعظم، دارایی، جنگ، خارجه، کشور، رئیس اطلاعات، صنایع و آموزش.',
+    'هر نامزد مهارت (۱ تا ۵ ستاره) و ویژگی‌های شخصیتی دارد؛ وزیر خوب درصدهای واقعی به اقتصاد، پژوهش یا ارتش شما اضافه می‌کند — اما حقوق می‌گیرد.',
+    'ژنرال‌ها به‌طور خودکار به ارتش‌ها گمارده می‌شوند. ویژگی‌هایشان (تهاجمی، پدافندی، مهندس، بی‌رحم…) مستقیماً روی توان نبرد، سرعت حرکت، سنگربندی و تلفات اثر می‌گذارد.',
+    'ژنرال با پیروزی تجربه می‌گیرد و ارتقا می‌یابد؛ در شکست ممکن است کشته شود. وفاداری پایین یعنی خطر خیانت و کودتا.',
+  ] },
+  { icon: '⚓', title: 'نیروی دریایی', items: [
+    'برای ساخت ناو، استان ساحلی باید «بندر» داشته باشد. کلاس‌های ناو با عصر باز می‌شوند: ناوچه، زره‌پوش، رزم‌ناو، ناوِ بزرگ، زیردریایی و ترابری.',
+    'جهان به مناطق دریایی تقسیم شده است. ناوگان را از پنل ⚓ برگزینید، سپس روی دریا کلیک کنید تا حرکت کند.',
+    'کلیک روی بندر دشمن = محاصره. بندر محاصره‌شده تولید و تجارت خود را از دست می‌دهد و کشورش زیر فشار می‌رود.',
+    'ناوهای ترابری، ارتش را سوار می‌کنند؛ ناوگان را به منطقه‌ی دشمن ببرید و سرباز پیاده کنید — حمله‌ی دریایی به پشت خطوط.',
+    'ناوگان‌ها در دریا با هم می‌جنگند؛ توان ناوگان و دریاسالار فرمانده، نتیجه را رقم می‌زند.',
+  ] },
+  { icon: '🕵️', title: 'جاسوسی و توطئه', items: [
+    'پنل 🕵️ سازمان اطلاعات است. برای هر کاری نخست باید در کشور هدف «شبکه» بسازید — بدون شبکه، عملیات سنگین ممکن نیست.',
+    'با شبکه‌ی قوی: جمع‌آوری اطلاعات (دیدن آمار واقعی دشمن)، دزدی فناوری، خرابکاری در صنایع، تحریک شورش، تأمین مالی اپوزیسیون، رشوه به وزیر، ترور و در نهایت کودتا.',
+    'هر عملیات ریسک لو رفتن دارد: اگر شکست بخورد، روابط می‌سوزد، کینه می‌ماند و ممکن است به جنگ برسد.',
+    'ضدجاسوسی را فعال کنید تا شبکه‌های دشمن در کشور شما شکار شوند. رئیس اطلاعاتِ زبده، هر دو سو را تقویت می‌کند.',
+  ] },
+  { icon: '🌍', title: 'فرهنگ، مذهب و جنگ داخلی', items: [
+    'پنل 🌍 جامعه: کشور شما یک فرهنگ و مذهب رسمی دارد، اما استان‌ها لزوماً همان را ندارند. اقلیت‌های پذیرفته‌نشده ناآرام می‌شوند.',
+    'شش جنبش سیاسی وجود دارد: مشروطه‌خواه، جمهوری‌خواه، سوسیالیست، ناسیونالیست، روحانی و جدایی‌طلب. قدرت و تندروی هر کدام را زیر نظر داشته باشید.',
+    '«سرکوب» فوری قدرتشان را کم می‌کند اما تندروترشان می‌کند و ثبات را می‌خورد؛ «مصالحه» پول و امتیاز می‌گیرد ولی آرامشان می‌کند.',
+    '«برنامه‌ی فرهنگی» روی استان‌های غیرهسته‌ای، آن‌ها را به‌مرور هم‌گون می‌کند و فشار جدایی‌طلبی را می‌خواباند.',
+    'هشدار: اگر ثبات زیر ۱۴ و مشروعیت زیر ۳۰ برود، <b>جنگ داخلی</b> می‌شود و استان‌ها به دست شورشیان می‌افتد. مُد نقشه‌ی «جدایی‌طلبی» نقاط خطر را نشان می‌دهد.',
+  ] },
+  { icon: '🛣️', title: 'تجارت، شرکت‌ها و مستعمرات', items: [
+    'پنل 🛣️: «تعرفه» را از آزاد تا حمایتی تنظیم کنید — تعرفه‌ی بالا درآمد گمرکی می‌دهد ولی حجم تجارت و روابط را کم می‌کند.',
+    'با کشورهای دوست مسیر صادرات/واردات باز کنید. هر مسیر با گذشت زمان پخته‌تر و پرسودتر می‌شود. ظرفیت مسیرها به بندر، راه‌آهن و توان دریایی بستگی دارد.',
+    'هشت شرکت بزرگ (غله، نساجی، معدن، فولاد، تسلیحات، کمپانی هند شرقی، بانک، راه‌آهن) می‌توانید تأسیس کنید — حداکثر چهار تا. هر کدام بخشی از اقتصاد را جهش می‌دهد.',
+    'سرزمین‌های بی‌صاحب را می‌توان مستعمره کرد: مأموریت استعماری چند هفته طول می‌کشد و در پایان استان به شما می‌رسد.',
+    'مراقب باشید: محاصره‌ی دریایی دشمن، مسیرهای تجاری و درآمد گمرکی شما را می‌خشکاند.',
   ] },
   { icon: '⚡', title: 'رویدادها و تصمیم‌ها', items: [
     'در جریان بازی رویدادهای تصادفی پیش می‌آیند؛ هر تصمیم واقعاً روی کشور اثر می‌گذارد (پول، ارتش، ناآرامی، روابط…).',

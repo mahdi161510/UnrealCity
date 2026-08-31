@@ -3,6 +3,11 @@ import { GOODS, BUILDINGS, NEEDS, POP_CLASSES, TECHS, LAWS, GROUPS, TAX_LEVELS, 
 import { clamp, lerp, mulberry32, pick } from './utils.js';
 import { addLog } from './state.js';
 import { findPath } from './mapgen.js';
+import { cabinetMods, charById, traitMods, commanderPower, addXP, stepCharacters, charsOf, makeChar, killChar, CABINET_KEYS } from './characters.js';
+import { simNaval, navyUpkeep, fleetsOf, blockadeLevel, navalStrength, SHIP_CLASSES, initNavy } from './naval.js';
+import { simEspionage, aiEspionage } from './espionage.js';
+import { simSociety, MOVE_KEYS, MOVEMENTS, isAccepted } from './society.js';
+import { simTrade, aiTrade, companyMods, TARIFF_LEVELS, tradeCapacity } from './trade.js';
 
 const PS = 0.26;      // مقیاس قیمت↔پول (حاشیه سود باریک‌تر؛ اقتصاد سخت‌تر)
 const WAGE = 9.0;     // دستمزد هفتگی به‌ازای هر ۱۰۰۰ نفر × ضریب طبقه
@@ -39,11 +44,41 @@ export function nationJobs(state, prov) {
   return jobs;
 }
 export function techMods(state, n) {
-  const m = { urbanOut: 0, mineOut: 0, farmOut: 0, toolOut: 0, allOut: 0, taxMult: 0, atk: 0, def: 0, recruit: 0, speed: 0, innov: 0, growth: 0, calm: 0, prestige: 0, portInc: 0, approval: 0, apprWorkers: 0, lawSpeed: 0, solAll: 0, dig: 0, press: 0, litTarget: 0 };
+  const m = { urbanOut: 0, mineOut: 0, farmOut: 0, toolOut: 0, allOut: 0, taxMult: 0, atk: 0, def: 0, recruit: 0, speed: 0, innov: 0, growth: 0, calm: 0, prestige: 0, portInc: 0, approval: 0, apprWorkers: 0, lawSpeed: 0, solAll: 0, dig: 0, press: 0, litTarget: 0, build: 0 };
   for (const t of n.tech) { const tm = TECHS[t].mods; for (const k in tm) m[k] = (m[k] || 0) + tm[k]; }
   const lawMods = lawModsOf(n);
   for (const k in lawMods.mods || {}) m[k] = (m[k] || 0) + lawMods.mods[k];
   if (n.persMods) for (const k in n.persMods) m[k] = (m[k] || 0) + n.persMods[k]; // گرایش شخصی فرمانروا
+  // ---- کابینه: وزیران کارآمد کل کشور را بالا می‌کشند ----
+  if (state.chars && n.cabinet) {
+    const cm = cabinetMods(state, n);
+    m.taxMult += cm.tax || 0;
+    m.atk += cm.atk || 0;
+    m.def += cm.def || 0;
+    m.recruit += cm.recruit || 0;
+    m.innov += cm.innov || 0;
+    m.litTarget += cm.litTarget || 0;
+    m.urbanOut += cm.urbanOut || 0;
+    m.lawSpeed += cm.lawSpeed || 0;
+    m.growth += cm.growth || 0;
+    m.prestige += cm.prestige || 0;
+    m.build += cm.build || 0;
+    m.calm += (cm.unrest || 0) * -0.012;  // وزیر کشورِ کاردان، آرامش می‌آورد
+    m.approval += ((cm.apprLand || 0) + (cm.apprIntel || 0) + (cm.apprWork || 0) + (cm.apprMil || 0) + (cm.apprClergy || 0)) * 0.12;
+    m._cab = cm;
+  }
+  // ---- شرکت‌های بازرگانی ----
+  if (n.companies?.length) {
+    const co = companyMods(state, n);
+    m.taxMult += co.tax || 0;
+    m.portInc += co.portInc || 0;
+    m.build += co.build || 0;
+    m._co = co;
+  }
+  // ---- ثبات و مشروعیت: کشور بی‌ثبات، بی‌بازده است ----
+  const stab = n.stability ?? 50;
+  if (stab < 40) { const pen = (40 - stab) / 100; m.allOut -= pen * 0.35; m.taxMult -= pen * 0.4; }
+  else if (stab > 70) { m.allOut += (stab - 70) / 100 * 0.18; }
   return m;
 }
 export function lawModsOf(n) {
@@ -142,6 +177,13 @@ export function tick(state) {
         let inFill = 1;
         for (const g in bd.cons) { const f = S.goods[g].fill ?? 1; if (f < inFill) inFill = f; }
         outMult *= (0.55 + 0.45 * inFill);
+
+        // شرکت‌های بازرگانی: جهش تولید کالای تخصصی‌شان
+        if (tm._co && tm._co.prodMult) {
+          for (const g in bd.prod) if (tm._co.prodMult[g]) { outMult *= 1 + tm._co.prodMult[g]; break; }
+        }
+        // محاصره‌ی دریایی: بندرها خفه و صنایع وابسته کند می‌شوند
+        if (p.blockaded) outMult *= bd.trade ? 0.25 : 0.82;
 
         const qty = lvl * r * devMult * outMult;
         let revenue = 0, material = 0;
@@ -252,7 +294,13 @@ export function tick(state) {
     L.taxIncome = (n._wageBill * 0.13 + Math.max(0, n._profitPool) * 0.10) * taxMult * effTax;
     let tradeBonus = 0;
     for (const o in n.pacts) if (n.pacts[o] === 'trade') tradeBonus += (S.nations[o]?.alive ? 40 : 0);
-    L.tariffs = tradeBonus;
+    // درآمد مسیرهای بازرگانی + تعرفه (از simTrade هفته‌ی پیش)
+    L.tariffs = tradeBonus + (n._tradeIncome || 0);
+    L.tradeRoutes = n._tradeIncome || 0;
+    // فساد وزیران: بخشی از درآمد گم می‌شود
+    const corrupt = clamp((tm._cab?.corrupt || 0), 0, 0.9);
+    L.corruption = (L.taxIncome + L.tariffs) * corrupt * 0.14;
+    L.taxIncome -= L.corruption;
     L.govWages = state_provincesCount(S, n.id) * 2.2 + nationPop(S, n.id) / 42000;
     // نگهداری ساختمان‌ها و تأسیسات عمومی (هرچه بزرگ‌تر شوی، گران‌تر می‌شود)
     let lvlTotal = 0, uniTotal = 0;
@@ -261,7 +309,11 @@ export function tick(state) {
       uniTotal += p.bld.university || 0;
     }
     L.upkeep = lvlTotal * 1.35 + uniTotal * 6;
-    L.armyUpkeep = n.battalions * 3.2 * (S.goods.arms.fill < 0.8 ? 1.4 : 1) * (atWarAny(S, n.id) ? 1.3 : 1) * (S.diffMods?.upkeep || 1);
+    L.armyUpkeep = n.battalions * 3.2 * (S.goods.arms.fill < 0.8 ? 1.4 : 1) * (atWarAny(S, n.id) ? 1.3 : 1) * (S.diffMods?.upkeep || 1)
+      * (1 + (tm._cab?.upkeep || 0));
+    // ناوگان و حقوق کابینه
+    L.navyUpkeep = navyUpkeep(S, n.id) * (S.diffMods?.upkeep || 1);
+    L.cabinet = CABINET_KEYS.reduce((a, r) => { const c = charById(S, n.cabinet?.[r]); return a + (c && c.alive ? c.salary : 0); }, 0);
     // ساخت‌وساز هنگام شروع به‌صورت کامل پرداخت شده؛ اینجا فقط گزارش می‌شود (بدون کسر دوباره)
     let cons = 0;
     for (const p of S.map.provs) {
@@ -269,7 +321,7 @@ export function tick(state) {
       for (const q of p.queue.slice(0, 2)) cons += BUILDINGS[q.key].cost / BUILDINGS[q.key].weeks;
     }
     L.construction = cons;
-    L.balance = L.taxIncome + L.tariffs - L.govWages - L.armyUpkeep - (L.upkeep || 0);
+    L.balance = L.taxIncome + L.tariffs - L.govWages - L.armyUpkeep - (L.upkeep || 0) - (L.navyUpkeep || 0) - (L.cabinet || 0);
     n.treasury += L.balance;
     n.ledger = L;
 
@@ -456,15 +508,28 @@ export function tick(state) {
     }
   }
 
-  // ---------- ۸) جنگ ----------
+  // ---------- ۸) جنگ (زمین و دریا) ----------
   simArmies(state);
   simBattles(state);
   simOccupation(state);
+  simNaval(state);
   simWars(state);
   simRelations(state);
 
+  // ---------- ۸.۵) جامعه، تجارت، جاسوسی و شخصیت‌ها ----------
+  simSociety(state);
+  simTrade(state);
+  simEspionage(state);
+  stepCharacters(state);
+
   // ---------- ۹) هوش مصنوعی ----------
-  for (const n of S.nations) if (!n.player && n.alive) thinkAI(state, n);
+  for (const n of S.nations) if (!n.player && n.alive) {
+    thinkAI(state, n);
+    aiTrade(state, n);
+    aiEspionage(state, n);
+    aiNavy(state, n);
+    aiCabinet(state, n);
+  }
 
   // ---------- ۱۰) اعتبار و آمار ----------
   const gdps = S.nations.map(n => n.gdp || 1);
@@ -474,7 +539,10 @@ export function tick(state) {
     if (!n.alive) { n.prestige = 0; continue; }
     const tm = techMods(S, n);
     const arm = (n.battalions + armiesOf(S, n.id).reduce((a, x) => a + x.size, 0));
-    n.prestige = 60 * (n.gdp / maxG) + 25 * (arm / maxBat) + n.tech.length * 2.2 + tm.prestige + avgSol(S, n.id) * 0.35;
+    const navy = navalStrength(S, n.id);
+    n.prestige = 60 * (n.gdp / maxG) + 25 * (arm / maxBat) + n.tech.length * 2.2 + tm.prestige + avgSol(S, n.id) * 0.35
+      + Math.min(18, navy * 0.16)                              // ناوگان بزرگ، آبروی جهانی
+      + Math.min(12, (n.legitimacy ?? 60) * 0.06 + (n.stability ?? 50) * 0.05);
     S.stats.gdp[n.id].push(n.gdp);
     if (!S.stats.sol[n.id]) S.stats.sol[n.id] = [];
     S.stats.sol[n.id].push(avgSol(S, n.id));
@@ -600,8 +668,62 @@ export function tick(state) {
   }
 }
 
+// ================= AI: ناوگان و کابینه =================
+function aiNavy(S, n) {
+  if (Math.random() > 0.09) return;
+  const ports = S.map.provs.filter(p => p.owner === n.id && p.controller === n.id && (p.bld.port || 0) > 0 && (p.navyQueue?.length || 0) < 2);
+  if (!ports.length) return;
+  const wantNavy = n.pers === 'trader' ? 1.4 : n.pers === 'aggressive' ? 1.2 : 0.8;
+  const have = navalStrength(S, n.id);
+  const budget = n.treasury;
+  if (budget < 2500) return;
+  if (have > 40 * wantNavy && Math.random() < 0.7) return;
+  const p = pick(Math.random, ports);
+  const era = S.era || 0;
+  // بهترین کلاسی که می‌تواند بسازد
+  const order = era >= 3 ? ['dread', 'cruiser', 'submarine', 'transport']
+    : era >= 2 ? ['cruiser', 'ironclad', 'submarine', 'transport']
+    : era >= 1 ? ['ironclad', 'frigate', 'transport'] : ['frigate', 'transport'];
+  for (const k of order) {
+    const c = SHIP_CLASSES[k];
+    if (c.tech && !n.tech.includes(c.tech)) continue;
+    if (budget < c.cost * 1.6) continue;
+    const r = startShipSim(S, p, k);
+    if (r.ok) return;
+  }
+}
+function startShipSim(S, prov, key) {
+  // بازتاب سبک startShip بدون وابستگی حلقوی
+  const n = S.nations[prov.owner];
+  const c = SHIP_CLASSES[key];
+  if (!c || !prov.coast || !(prov.bld.port > 0)) return { ok: false };
+  if (c.tech && !n.tech.includes(c.tech)) return { ok: false };
+  prov.navyQueue = prov.navyQueue || [];
+  if (prov.navyQueue.length >= 3) return { ok: false };
+  if (n.treasury < c.cost) return { ok: false };
+  n.treasury -= c.cost;
+  prov.navyQueue.push({ key, prog: 0, weeks: c.weeks });
+  return { ok: true };
+}
+function aiCabinet(S, n) {
+  if (S.week % 8 !== 0) return;
+  const empty = CABINET_KEYS.filter(r => !n.cabinet?.[r] || !charById(S, n.cabinet[r])?.alive);
+  if (!empty.length) return;
+  const cands = (n.candidates || []).map(id => charById(S, id)).filter(c => c && c.alive && !c.post);
+  if (!cands.length) return;
+  cands.sort((a, b) => b.skill - a.skill);
+  const role = empty[0], c = cands[0];
+  const cost = c.salary * 8;
+  if (n.treasury < cost + 900) return;
+  n.treasury -= cost;
+  n.cabinet[role] = c.id;
+  c.post = role;
+  n.candidates = (n.candidates || []).filter(x => x !== c.id);
+}
+
 function state_provincesCount(S, nid) { return S.map.provs.filter(p => p.owner === nid).length; }
 export function atWarAny(S, nid) { return S.nations[nid].wars.length > 0; }
+export function navalStrengthOf(S, nid) { return navalStrength(S, nid); }
 export function avgSol(S, nid) {
   let s = 0, c = 0;
   for (const p of S.map.provs) if (p.owner === nid) { s += (p.sol || 10) * nationPopProv(p); c += nationPopProv(p); }
@@ -632,12 +754,34 @@ export function orderArmy(S, army, target) {
   return true;
 }
 // هیئت رزم واقع‌گرایانه: ژنرال‌ها، سنگر، تدارکات و فرسایش
+// هر ارتش یک ژنرالِ واقعی (شخصیت) می‌گیرد؛ اگر نبود، از استخر آزاد برداشته
+// می‌شود و اگر استخر خالی بود، افسر تازه‌ای فراخوان می‌شود.
 function ensureGen(S, a) {
-  if (a.n === REBEL || a.gen) return;
-  // نام‌های متناسب با خط زمانی (۱۹۳۸/۲۰۲۶: ژنرال‌ها و فیلد مارشال‌ها)
-  const names = S.tlGenNames || GEN_NAMES;
-  a.gen = { name: names[a.id % names.length], skill: 0.85 + ((a.id * 7919) % 40) / 100 };
+  if (a.n === REBEL) return;
   if (a.dig === undefined) a.dig = 0;
+  // اگر ژنرال تخصیص‌یافته هنوز زنده است، کاری نیست
+  if (a.genId) {
+    const c = charById(S, a.genId);
+    if (c && c.alive) { a.gen = { name: c.name, skill: commanderPower(c) }; return; }
+    a.genId = null;
+  }
+  const n = S.nations[a.n];
+  if (!n) return;
+  let cand = (S.chars || []).find(c => c.alive && c.owner === a.n && c.kind === 'general' && c.assigned === null && !c.post);
+  if (!cand) {
+    cand = makeChar(S, 'general', { owner: a.n });
+    S.chars.push(cand);
+    if (n.player) addLog(S, '🎖️', `افسر تازه‌ای به خدمت درآمد: ${cand.name}`);
+  }
+  cand.assigned = a.id;
+  a.genId = cand.id;
+  a.gen = { name: cand.name, skill: commanderPower(cand) };
+}
+// تعدیل‌دهنده‌های ژنرال یک ارتش (صفات + مهارت)
+function genModsOf(S, a) {
+  const c = a.genId ? charById(S, a.genId) : null;
+  if (!c || !c.alive) return { m: {}, power: a.n === REBEL ? 0.9 : 1, char: null };
+  return { m: traitMods(c), power: commanderPower(c), char: c };
 }
 const FRONTAGE = { plains: 10, desert: 9, forest: 7, wetland: 6, hills: 6, mountain: 4 };
 function effSize(a, terr) {
@@ -650,19 +794,25 @@ function simArmies(S) {
     ensureGen(S, a);
     const p = S.map.provs[a.prov];
     const inOwn = a.n >= 0 && (p.owner === a.n || p.controller === a.n);
+    const gm = a.n !== REBEL ? genModsOf(S, a).m : {};
     if (a.n !== REBEL) {
+      const orgCap = 100 + (gm.orgCap || 0);
       if (inOwn) {
-        a.org = Math.min(100, a.org + 2.5);
-        a.mor = Math.min(100, a.mor + 2.5);
-        // سنگرگیری در زمین خودی (نه در حرکت)
-        if (a.status !== 'move') { const tm = techMods(S, S.nations[a.n]); const cap = 8 + (tm.dig || 0); a.dig = Math.min(cap, (a.dig || 0) + 0.55); }
+        a.org = Math.min(orgCap, a.org + 2.5 * (1 + (gm.org || 0)));
+        a.mor = Math.min(orgCap, a.mor + 2.5 * (1 + (gm.mor || 0)));
+        // سنگرگیری در زمین خودی (نه در حرکت) — «مهندس سنگر» دوبرابر می‌کَنَد
+        if (a.status !== 'move') {
+          const tm = techMods(S, S.nations[a.n]);
+          const cap = 8 + (tm.dig || 0) + (gm.digCap || 0);
+          a.dig = Math.min(cap, (a.dig || 0) + 0.55 * (1 + (gm.dig || 0)));
+        }
       } else {
         // فرسایش در زمین بی‌گذر: انسجام می‌افتد و بیماری/گریخت آغاز می‌شود
-        a.org = Math.max(5, a.org - 0.9);
-        a.mor = Math.max(10, a.mor - 0.35);
+        a.org = Math.max(5, a.org - 0.9 * (1 + (gm.attrition || 0)));
+        a.mor = Math.max(10, a.mor - 0.35 * (1 + (gm.mor || 0) * -1));
         const harsh = p.terrain === 'mountain' || p.terrain === 'desert' ? 1.8 : 1;
         const fillA = S.goods.arms.fill ?? 1;
-        a.size = Math.max(0.35, a.size - 0.006 * harsh * (fillA < 0.55 ? 2.2 : 1));
+        a.size = Math.max(0.35, a.size - 0.006 * harsh * (fillA < 0.55 ? 2.2 : 1) * (1 + (gm.attrition || 0)));
         a.dig = 0;
       }
     } else { a.size = Math.min(6, a.size + 0.08); }
@@ -673,6 +823,7 @@ function simArmies(S) {
       const ownerN = S.map.provs[next].owner;
       if (n >= 0 && ownerN !== n && !atWar(S, n, ownerN)) mw *= 1.8; // گذر از خاک بی‌گانه خنثی
       if (S.map.provs[next].bld.railway > 0) mw /= 1.6; // حمل‌ونقل ریلی
+      if (gm.speed) mw /= (1 + gm.speed);               // «کاردان تدارکات»
       a.prog = (a.prog || 0) + 1 / mw;
       if (a.prog >= 1) {
         a.prog = 0;
@@ -683,7 +834,17 @@ function simArmies(S) {
       }
     }
   }
-  // پاک‌سازی ارتش‌های نابودشده
+  // پاک‌سازی ارتش‌های نابودشده — ژنرال آزاد می‌شود تا دوباره فرمان بگیرد
+  const dead = S.armies.filter(a => a.size <= 0.35);
+  for (const a of dead) {
+    if (!a.genId) continue;
+    const c = charById(S, a.genId);
+    if (c && c.alive) {
+      c.assigned = null;
+      c.loyalty = clamp(c.loyalty - 8, 0, 100);
+      c.hist.push({ w: S.week, t: 'ارتشش نابود شد' });
+    }
+  }
   S.armies = S.armies.filter(a => a.size > 0.35);
 }
 function hostilePair(S, a, b) {
@@ -725,14 +886,26 @@ function simBattles(S) {
     const hapD = def.n >= 0 && (S.nations[def.n].groups.military?.appr ?? 0) >= 10 ? 1.05 : 1;
     const fillA = atk.n >= 0 ? (S.goods.arms.fill ?? 1) : 1;
     const fillD = def.n >= 0 ? (S.goods.arms.fill ?? 1) : 1;
-    const genA = atk.gen ? atk.gen.skill : 1, genD = def.gen ? def.gen.skill : 1;
-    const digD = 1 + Math.min((def.dig || 0), 25) / 100; // سنگر دفاعی
+    // ژنرال‌های واقعی: مهارت + صفات + تخصص زمین
+    const gA = genModsOf(S, atk), gD = genModsOf(S, def);
+    const genA = gA.power, genD = gD.power;
+    const terrBonus = (gm) => {
+      const t = p.terrain;
+      if ((t === 'mountain' || t === 'hills') && gm.terrHills) return 1 + gm.terrHills;
+      if ((t === 'desert' || t === 'plains') && gm.terrDry) return 1 + gm.terrDry;
+      if ((t === 'forest' || t === 'wetland') && gm.terrWet) return 1 + gm.terrWet;
+      return 1;
+    };
+    const digCap = 25 + (gD.m.digCap || 0);
+    const digD = 1 + Math.min((def.dig || 0), digCap) / 100; // سنگر دفاعی
     const rnd1 = 0.75 + Math.random() * 0.5, rnd2 = 0.75 + Math.random() * 0.5;
     const capA = effSize(atk, p.terrain), capD = effSize(def, p.terrain);
-    const pA = capA * (1 + (modA.atk || 0)) * genA * (atk.org / 100) * (0.6 + 0.4 * fillA) * hapA * rnd1;
-    const pD = capD * (1 + (modD.def || 0)) * genD * digD * terr.def * (def.org / 100) * (0.6 + 0.4 * fillD) * hapD * rnd2;
+    const pA = capA * (1 + (modA.atk || 0) + (gA.m.atk || 0)) * genA * terrBonus(gA.m) * (atk.org / 100) * (0.6 + 0.4 * fillA) * hapA * rnd1;
+    const pD = capD * (1 + (modD.def || 0) + (gD.m.def || 0)) * genD * terrBonus(gD.m) * digD * terr.def * (def.org / 100) * (0.6 + 0.4 * fillD) * hapD * rnd2;
     const k = 0.055;
-    const lA = pD * k * (0.8 + Math.random() * 0.4), lD = pA * k * (0.8 + Math.random() * 0.4);
+    // «قصاب» بیشتر می‌کشد ولی بیشتر هم می‌دهد
+    const lA = pD * k * (0.8 + Math.random() * 0.4) * (1 + (gD.m.dmg || 0) + (gA.m.selfDmg || 0));
+    const lD = pA * k * (0.8 + Math.random() * 0.4) * (1 + (gA.m.dmg || 0) + (gD.m.selfDmg || 0));
     atk.size = Math.max(0, atk.size - lA);
     def.size = Math.max(0, def.size - lD);
     atk.org = Math.max(0, atk.org - (5 + pD / Math.max(pA, 1) * 8));
@@ -756,6 +929,23 @@ function simBattles(S) {
       winner.status = 'idle';
       winner.mor = Math.min(100, winner.mor + 10);
       loser.dig = 0;
+      // ---- تجربه‌ی ژنرال‌ها ----
+      const wc = winner.genId ? charById(S, winner.genId) : null;
+      const lc = loser.genId ? charById(S, loser.genId) : null;
+      if (wc) {
+        addXP(S, wc, 60 + Math.round(bt.t * 1.6));
+        wc.battles++; wc.wins++; wc.kills += Math.round(lD * 900);
+        wc.loyalty = clamp(wc.loyalty + 3, 0, 100);
+        const wm = traitMods(wc);
+        if (wm.research) S.nations[wc.owner].res.pts += wm.research;   // «اهل کتاب»
+      }
+      if (lc) {
+        addXP(S, lc, 22);
+        lc.battles++;
+        lc.loyalty = clamp(lc.loyalty - 4, 0, 100);
+        // ژنرال شکست‌خورده گاهی در میدان می‌ماند
+        if (Math.random() < 0.05) killChar(S, lc, 'کشته‌شدن در نبرد');
+      }
       // عقب‌نشینی
       if (loser.n >= 0) {
         const homeAdj = p.adj.find(q => S.map.provs[q].owner === loser.n) ?? p.adj[0];
@@ -795,7 +985,10 @@ function simOccupation(S) {
       const force = hostiles.reduce((a, x) => a + x.size, 0);
       // استحکام دفاعی با پادگان و راه‌آهن اشغال را دشوارتر می‌کند
       const fort = 1 + (p.bld.barracks || 0) * 0.28 + (p.bld.railway || 0) * 0.12;
-      p.occ = (p.occ || 0) + clamp(force * 4 / fort, 1, 16);
+      // «استاد محاصره» و «سنگدل» سریع‌تر شهر را می‌گیرند
+      let siegeB = 1;
+      for (const h of hostiles) { const m = genModsOf(S, h).m; siegeB = Math.max(siegeB, 1 + (m.siege || 0)); if (m.unrest) p.unrest = clamp(p.unrest + m.unrest * 0.1, 0, 100); }
+      p.occ = (p.occ || 0) + clamp(force * 4 * siegeB / fort, 1, 16);
       if (p.occ >= 100) {
         p.controller = hostiles[0].n;
         p.occ = 0; p.unrest = Math.min(100, p.unrest + 30);
